@@ -9,10 +9,10 @@ import random
 from datetime import datetime
 
 # Cấu hình giao diện di động
-st.set_page_config(page_title="Hệ Thống Real-Time Đồng Bộ", page_icon="🚨", layout="centered")
+st.set_page_config(page_title="Hệ Thống Quét Cuốn Chiếu", page_icon="🚨", layout="centered")
 
-st.title("🚨 Hệ Thống VPD Giả Lập Real-Time 30s")
-st.markdown("Hệ thống tự động sinh dữ liệu cho **nhiều trạm cùng lúc** và đồng bộ gửi về Telegram sau mỗi 30 giây.")
+st.title("🚨 Giám Sát Real-Time Quét Vòng 5 Trạm")
+st.markdown("Mô phỏng: **Mỗi trạm gửi cách nhau 30s, các trạm lệch pha nhau đúng 5s**.")
 
 # --- CẤU HÌNH THÔNG TIN KẾT NỐI (BOT CHẠY 1 MÌNH) ---
 MQTT_BROKER = "broker.hivemq.com"
@@ -24,6 +24,13 @@ TELEGRAM_CHAT_ID = "7290661009"
 # --- KHỞI TẠO STATE ---
 if "mqtt_df" not in st.session_state:
     st.session_state.mqtt_df = pd.DataFrame()
+
+# Biến lưu vết trạm nào sẽ gửi ở giây thứ mấy
+if "current_station_index" not in st.session_state:
+    st.session_state.current_station_index = 0
+
+# Danh sách 5 trạm trong hệ thống vườn
+STATIONS_LIST = ["1", "2", "3", "4", "5"]
 
 # =====================================================================
 # CẤU HÌNH THANH TRƯỢT NGƯỠNG ĐỘNG
@@ -48,7 +55,7 @@ def calculate_vpd(temp, humi):
 def send_telegram_auto(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     try: 
-        requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"}, timeout=3)
+        requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"}, timeout=2)
     except: 
         pass
 
@@ -102,16 +109,13 @@ def process_incoming_data(df_new):
             
             status, reason, action = evaluate_status(vpd_val, t_val, h_val, station_id, low_t, high_t, mid_t)
             
-            # Gửi tin nhắn Telegram ngay lập tức khi xử lý dữ liệu dòng này
             msg = (
-                f"📊 *CẬP NHẬT THÔNG SỐ VƯỜN METRIC*\n"
-                f"⏱ Thời gian: `{time_log}`\n"
-                f"📍 Vị trí: Trạm {station_id}\n"
+                f"📡 *[MÔ PHỎNG REALTIME] TRẠM {station_id}/5*\n"
+                f"⏱ Cập nhật: `{time_log}`\n"
                 f"🌡 Nhiệt độ: {t_val}°C | 💧 Độ ẩm: {h_val}%\n"
                 f"💨 Chỉ số VPD: *{vpd_val} kPa*\n"
                 f"📢 Trạng thái: *{status}*\n"
-                f"📝 Chi tiết: {reason}\n"
-                f"🛠 Khắc phục: _{action}_"
+                f"🛠 Hướng xử lý: _{action}_"
             )
             send_telegram_auto(msg)
 
@@ -143,50 +147,56 @@ _ = start_mqtt_client()
 
 
 # =====================================================================
-# LUỒNG TỰ ĐỘNG RANDOM NHIỀU TRẠM ĐỒNG THỜI (ĐẶT TRÊN ĐẦU ĐỂ ĐỒNG BỘ)
+# THUẬT TOÁN GIẢ LẬP LỆCH PHA 5 GIÂY VÀ ĐỒNG HỒ ĐẾM NGƯỢC REAL-TIME
 # =====================================================================
-# Tạo một biến flag để mỗi chu kỳ chạy lại chỉ sinh dữ liệu đúng 1 lần
-if "last_run_time" not in st.session_state:
-    st.session_state.last_run_time = 0
+st.subheader("⏱️ Tiến Độ Điều Phối Xung Nhịp")
 
-current_timestamp = time.time()
-# Nếu khoảng cách giữa lần chạy trước và lần này lớn hơn hoặc bằng 28s (để bù trừ độ trễ rerun)
-if current_timestamp - st.session_state.last_run_time >= 28:
-    st.session_state.last_run_time = current_timestamp
+idx = st.session_state.current_station_index
+active_station = STATIONS_LIST[idx]
+next_station = STATIONS_LIST[(idx + 1) % len(STATIONS_LIST)]
+
+# Hiển thị thông tin trạm đang chạy trực quan lên giao diện Web
+col1, col2 = st.columns(2)
+with col1:
+    st.metric(label="🟢 Trạm vừa truyền dữ liệu & Tele", value=f"Trạm {active_station}")
+with col2:
+    st.metric(label="⏳ Trạm xếp hàng kế tiếp", value=f"Trạm {next_station}")
+
+# Tạo dữ liệu ngẫu nhiên cho trạm hiện tại
+current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+scenarios = ["NORMAL", "MAX_HUMIDITY", "EXTREME_HOT", "LOST_SIGNAL"]
+weights = [0.85, 0.07, 0.05, 0.03]
+scenario = random.choices(scenarios, weights=weights, k=1)[0]
+
+if scenario == "NORMAL":
+    temp = round(random.uniform(26.5, 35.5), 1)
+    humi = round(random.uniform(55.0, 82.0), 1)
+elif scenario == "EXTREME_HOT":
+    temp = round(random.uniform(40.5, 43.5), 1)
+    humi = round(random.uniform(25.0, 38.0), 1)
+elif scenario == "MAX_HUMIDITY":
+    temp = round(random.uniform(19.0, 24.0), 1)
+    humi = round(random.uniform(99.5, 100.0), 1)
+elif scenario == "LOST_SIGNAL":
+    temp = round(random.uniform(25.0, 32.0), 1)
+    humi = 0.0
+
+if active_station == "5":
+    mock_packet = [{"time": current_time_str, "station": "5", "tempKK": temp, "humiKK": humi}]
+else:
+    mock_packet = [{"Thời gian": current_time_str, "STT": active_station, "Nhiệt độ": temp, "Độ ẩm": humi}]
     
-    current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    list_mock_data = []
-    
-    # Vòng lặp sinh dữ liệu đồng thời cho cả 3 trạm: Trạm 1, Trạm 2, Trạm 5
-    for target_station in ["1", "2", "5"]:
-        scenarios = ["NORMAL", "MAX_HUMIDITY", "EXTREME_HOT", "LOST_SIGNAL"]
-        weights = [0.85, 0.07, 0.05, 0.03]
-        scenario = random.choices(scenarios, weights=weights, k=1)[0]
-        
-        if scenario == "NORMAL":
-            temp = round(random.uniform(26.5, 35.5), 1)
-            humi = round(random.uniform(55.0, 82.0), 1)
-        elif scenario == "EXTREME_HOT":
-            temp = round(random.uniform(40.5, 43.5), 1)
-            humi = round(random.uniform(25.0, 38.0), 1)
-        elif scenario == "MAX_HUMIDITY":
-            temp = round(random.uniform(19.0, 24.0), 1)
-            humi = round(random.uniform(99.5, 100.0), 1)
-        elif scenario == "LOST_SIGNAL":
-            temp = round(random.uniform(25.0, 32.0), 1)
-            humi = 0.0
+df_single_step = pd.DataFrame(mock_packet)
+process_incoming_data(df_single_step)
 
-        if target_station == "5":
-            list_mock_data.append({"time": current_time_str, "station": "5", "tempKK": temp, "humiKK": humi})
-        else:
-            list_mock_data.append({"Thời gian": current_time_str, "STT": target_station, "Nhiệt độ": temp, "Độ ẩm": humi})
-            
-    df_batch = pd.DataFrame(list_mock_data)
-    # Xử lý gộp dữ liệu và kích hoạt bắn Telegram chuẩn xác cùng một lúc
-    process_incoming_data(df_batch)
+# Cập nhật chỉ mục trạm chuẩn bị cho vòng kế tiếp
+st.session_state.current_station_index = (idx + 1) % len(STATIONS_LIST)
 
 
-# --- BIỂU DIỄN DỮ LIỆU LÊN APP SCREEN ---
+# --- KHU VỰC ĐỒNG HỒ ĐẾM NGƯỢC HIỂN THỊ CHÍNH XÁC 5 GIÂY ---
+countdown_placeholder = st.empty()
+
+# --- BIỂU DIỄN BẢNG DỮ LIỆU LÊN APP SCREEN ---
 df = st.session_state.mqtt_df.copy()
 
 if not df.empty:
@@ -197,13 +207,10 @@ if not df.empty:
     df[stt_col] = df[stt_col].astype(str)
     df = df.sort_values(by=time_col, ascending=True)
     
-    latest_time_log = df[time_col].iloc[-1]
-    st.markdown(f"⏱️ **Mốc dữ liệu đồng bộ mới nhất:** `{latest_time_log}`")
-    st.subheader("🔔 Nhật Ký Theo Dõi Cảm Biến Real-Time")
-    
+    st.subheader("🔔 Bảng Trạng Thái 5 Trạm Real-Time")
     processed_chunks = []
     
-    for station_id in ["1", "2", "5"]:
+    for station_id in STATIONS_LIST:
         station_df = df[df[stt_col] == station_id]
         if station_df.empty:
             continue
@@ -223,7 +230,7 @@ if not df.empty:
             
             processed_chunks.append(pd.DataFrame([{
                 "Thời gian": row[time_col],
-                "Số Trạm": station_id,
+                "Số Trạm": f"Trạm {station_id}",
                 "Nhiệt độ (°C)": t_val,
                 "Độ ẩm (%)": h_val,
                 "VPD (kPa)": vpd_val,
@@ -234,12 +241,17 @@ if not df.empty:
             
     if processed_chunks:
         st.dataframe(pd.concat(processed_chunks, ignore_index=True), use_container_width=True)
-
 else:
-    st.info("🔄 Đang nạp loạt dữ liệu đồng bộ đầu tiên...")
+    st.info("🔄 Hệ thống đang kích hoạt xung nhịp quét vòng tròn trạm...")
+
 
 # =====================================================================
-# CHU KỲ REFRESH ĐỒNG BỘ 30 GIÂY
+# VÒNG LẶP ĐẾM NGƯỢC TỪNG GIÂY (GIÚP USER QUAN SÁT TRỰC QUAN)
 # =====================================================================
-time.sleep(30)
+for seconds_left in range(5, 0, -1):
+    # Cập nhật chữ đếm ngược và thanh chạy tiến trình (Progress Bar) lên web
+    countdown_placeholder.markdown(f"⏳ **Đang đếm ngược chu kỳ lệch pha:** `{seconds_left} giây nữa` sẽ chuyển sang trạm kế tiếp...")
+    time.sleep(1)
+
+# Hết 5 giây, tự động tải lại trang để chuyển trạm
 st.rerun()
