@@ -9,10 +9,10 @@ import random
 from datetime import datetime
 
 # Cấu hình giao diện di động
-st.set_page_config(page_title="Hệ Thống MQTT Tốc Độ Cao", page_icon="🚨", layout="centered")
+st.set_page_config(page_title="Hệ Thống Real-Time Đồng Bộ", page_icon="🚨", layout="centered")
 
-st.title("🚨 Hệ Thống VPD Giả Lập Siêu Tốc 5s/Lần")
-st.markdown("Hệ thống đang tự động random thông số và **gửi trực tiếp về Telegram ngay lập tức** sau mỗi 5 giây.")
+st.title("🚨 Hệ Thống VPD Giả Lập Real-Time 30s")
+st.markdown("Hệ thống tự động sinh dữ liệu cho **nhiều trạm cùng lúc** và đồng bộ gửi về Telegram sau mỗi 30 giây.")
 
 # --- CẤU HÌNH THÔNG TIN KẾT NỐI (BOT CHẠY 1 MÌNH) ---
 MQTT_BROKER = "broker.hivemq.com"
@@ -48,8 +48,7 @@ def calculate_vpd(temp, humi):
 def send_telegram_auto(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     try: 
-        # Bỏ timeout lâu, ép gửi realtime cực nhanh
-        requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"}, timeout=2)
+        requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"}, timeout=3)
     except: 
         pass
 
@@ -101,10 +100,9 @@ def process_incoming_data(df_new):
             vpd_val = round(calculate_vpd(t_val, h_val), 3)
             time_log = str(row[time_col])
             
-            # Lấy thông tin trạng thái văn bản để gửi đi
             status, reason, action = evaluate_status(vpd_val, t_val, h_val, station_id, low_t, high_t, mid_t)
             
-            # KHÔNG SÀI BỘ LỌC TRÙNG NỮA -> BẮN THẲNG LÊN TELEGRAM TẤT CẢ CÁC GÓI TIN 5s/LẦN
+            # Gửi tin nhắn Telegram ngay lập tức khi xử lý dữ liệu dòng này
             msg = (
                 f"📊 *CẬP NHẬT THÔNG SỐ VƯỜN METRIC*\n"
                 f"⏱ Thời gian: `{time_log}`\n"
@@ -145,36 +143,47 @@ _ = start_mqtt_client()
 
 
 # =====================================================================
-# HÀM TỰ ĐỘNG SINH DỮ LIỆU ĐỂ BẮN REALTIME LÊN TELEGRAM
+# LUỒNG TỰ ĐỘNG RANDOM NHIỀU TRẠM ĐỒNG THỜI (ĐẶT TRÊN ĐẦU ĐỂ ĐỒNG BỘ)
 # =====================================================================
-def auto_generate_random_data():
-    scenarios = ["NORMAL", "MAX_HUMIDITY", "EXTREME_HOT", "LOST_SIGNAL"]
-    weights = [0.85, 0.07, 0.05, 0.03]
-    scenario = random.choices(scenarios, weights=weights, k=1)[0]
-    
-    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    test_station = random.choice(["1", "2", "5"]) 
-    
-    if scenario == "NORMAL":
-        temp = round(random.uniform(26.5, 35.5), 1)
-        humi = round(random.uniform(55.0, 82.0), 1)
-    elif scenario == "EXTREME_HOT":
-        temp = round(random.uniform(40.5, 43.5), 1)
-        humi = round(random.uniform(25.0, 38.0), 1)
-    elif scenario == "MAX_HUMIDITY":
-        temp = round(random.uniform(19.0, 24.0), 1)
-        humi = round(random.uniform(99.5, 100.0), 1)
-    elif scenario == "LOST_SIGNAL":
-        temp = round(random.uniform(25.0, 32.0), 1)
-        humi = 0.0
+# Tạo một biến flag để mỗi chu kỳ chạy lại chỉ sinh dữ liệu đúng 1 lần
+if "last_run_time" not in st.session_state:
+    st.session_state.last_run_time = 0
 
-    if test_station == "5":
-        mock_data = [{"time": current_time, "station": "5", "tempKK": temp, "humiKK": humi}]
-    else:
-        mock_data = [{"Thời gian": current_time, "STT": test_station, "Nhiệt độ": temp, "Độ ẩm": humi}]
+current_timestamp = time.time()
+# Nếu khoảng cách giữa lần chạy trước và lần này lớn hơn hoặc bằng 28s (để bù trừ độ trễ rerun)
+if current_timestamp - st.session_state.last_run_time >= 28:
+    st.session_state.last_run_time = current_timestamp
+    
+    current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    list_mock_data = []
+    
+    # Vòng lặp sinh dữ liệu đồng thời cho cả 3 trạm: Trạm 1, Trạm 2, Trạm 5
+    for target_station in ["1", "2", "5"]:
+        scenarios = ["NORMAL", "MAX_HUMIDITY", "EXTREME_HOT", "LOST_SIGNAL"]
+        weights = [0.85, 0.07, 0.05, 0.03]
+        scenario = random.choices(scenarios, weights=weights, k=1)[0]
         
-    df_mock = pd.DataFrame(mock_data)
-    process_incoming_data(df_mock)
+        if scenario == "NORMAL":
+            temp = round(random.uniform(26.5, 35.5), 1)
+            humi = round(random.uniform(55.0, 82.0), 1)
+        elif scenario == "EXTREME_HOT":
+            temp = round(random.uniform(40.5, 43.5), 1)
+            humi = round(random.uniform(25.0, 38.0), 1)
+        elif scenario == "MAX_HUMIDITY":
+            temp = round(random.uniform(19.0, 24.0), 1)
+            humi = round(random.uniform(99.5, 100.0), 1)
+        elif scenario == "LOST_SIGNAL":
+            temp = round(random.uniform(25.0, 32.0), 1)
+            humi = 0.0
+
+        if target_station == "5":
+            list_mock_data.append({"time": current_time_str, "station": "5", "tempKK": temp, "humiKK": humi})
+        else:
+            list_mock_data.append({"Thời gian": current_time_str, "STT": target_station, "Nhiệt độ": temp, "Độ ẩm": humi})
+            
+    df_batch = pd.DataFrame(list_mock_data)
+    # Xử lý gộp dữ liệu và kích hoạt bắn Telegram chuẩn xác cùng một lúc
+    process_incoming_data(df_batch)
 
 
 # --- BIỂU DIỄN DỮ LIỆU LÊN APP SCREEN ---
@@ -189,12 +198,12 @@ if not df.empty:
     df = df.sort_values(by=time_col, ascending=True)
     
     latest_time_log = df[time_col].iloc[-1]
-    st.markdown(f"⏱️ **Mốc cập nhật hệ thống mới nhất:** `{latest_time_log}`")
+    st.markdown(f"⏱️ **Mốc dữ liệu đồng bộ mới nhất:** `{latest_time_log}`")
     st.subheader("🔔 Nhật Ký Theo Dõi Cảm Biến Real-Time")
     
     processed_chunks = []
     
-    for station_id in df[stt_col].unique():
+    for station_id in ["1", "2", "5"]:
         station_df = df[df[stt_col] == station_id]
         if station_df.empty:
             continue
@@ -227,11 +236,10 @@ if not df.empty:
         st.dataframe(pd.concat(processed_chunks, ignore_index=True), use_container_width=True)
 
 else:
-    st.info("🔄 Đang nạp loạt dữ liệu realtime đầu tiên...")
+    st.info("🔄 Đang nạp loạt dữ liệu đồng bộ đầu tiên...")
 
 # =====================================================================
-# CHU KỲ BẮN TIN VÀ REFRESH 5 GIÂY TỰ ĐỘNG
+# CHU KỲ REFRESH ĐỒNG BỘ 30 GIÂY
 # =====================================================================
-time.sleep(5)
-auto_generate_random_data()  
+time.sleep(30)
 st.rerun()
