@@ -9,7 +9,7 @@ import random
 from datetime import datetime
 
 # Cấu hình giao diện di động
-st.set_page_config(page_title="Hệ Thống Quét Cuốn Chiếu", page_icon="🚨", layout="centered")
+st.set_page_config(page_title="Hệ Thống Quét Điều Khiển", page_icon="🚨", layout="centered")
 
 st.title("🚨 Giám Sát Real-Time Quét Vòng 5 Trạm")
 st.markdown("Mô phỏng: **Mỗi trạm gửi cách nhau 150s, các trạm lệch pha nhau đúng 30s**.")
@@ -25,12 +25,38 @@ TELEGRAM_CHAT_ID = "7290661009"
 if "mqtt_df" not in st.session_state:
     st.session_state.mqtt_df = pd.DataFrame()
 
+# Trạng thái hoạt động của bộ giả lập (Mặc định là chạy tự động)
+if "is_running" not in st.session_state:
+    st.session_state.is_running = True
+
 # Biến lưu vết trạm nào sẽ gửi ở giây thứ mấy
 if "current_station_index" not in st.session_state:
     st.session_state.current_station_index = 0
 
 # Danh sách 5 trạm trong hệ thống vườn
 STATIONS_LIST = ["1", "2", "3", "4", "5"]
+
+# =====================================================================
+# BỘ ĐIỀU KHIỂN BẮT ĐẦU / DỪNG LẠI (PLAY / PAUSE BUTTONS)
+# =====================================================================
+st.subheader("🎮 Bộ Điều Khiển Hệ Thống")
+col_start, col_stop = st.columns(2)
+
+with col_start:
+    if st.button("▶️ BẮT ĐẦU (Chạy tự động)", use_container_width=True, type="primary"):
+        st.session_state.is_running = True
+        st.rerun()
+
+with col_stop:
+    if st.button("⏸️ DỪNG LẠI (Tạm dừng quét)", use_container_width=True):
+        st.session_state.is_running = False
+        st.rerun()
+
+# Hiển thị thanh thông báo trạng thái hiện tại của máy học ngầm
+if st.session_state.is_running:
+    st.success("🤖 Hệ thống đang: **CHẠY TỰ ĐỘNG (Xung nhịp 30s)**")
+else:
+    st.warning("⏸️ Hệ thống đang: **TẠM DỪNG QUÉT** (Đang giữ nguyên thông số hiển thị)")
 
 # =====================================================================
 # CẤU HÌNH THANH TRƯỢT NGƯỠNG ĐỘNG
@@ -147,7 +173,7 @@ _ = start_mqtt_client()
 
 
 # =====================================================================
-# THUẬT TOÁN GIẢ LẬP LỆCH PHA 30 GIÂY VÀ ĐỒNG HỒ ĐẾM NGƯỢC REAL-TIME
+# THUẬT TOÁN GIẢ LẬP LỆCH PHA 30 GIÂY (CHỈ CHẠY KHI IS_RUNNING = TRUE)
 # =====================================================================
 st.subheader("⏱️ Tiến Độ Điều Phối Xung Nhịp")
 
@@ -155,45 +181,46 @@ idx = st.session_state.current_station_index
 active_station = STATIONS_LIST[idx]
 next_station = STATIONS_LIST[(idx + 1) % len(STATIONS_LIST)]
 
-# Hiển thị thông tin trạm đang chạy trực quan lên giao diện Web
+# Hiển thị thông số trạm đang chờ điều phối lên màn hình
 col1, col2 = st.columns(2)
 with col1:
-    st.metric(label="🟢 Trạm vừa truyền dữ liệu & Tele", value=f"Trạm {active_station}")
+    st.metric(label="🟢 Trạm vừa xử lý dữ liệu", value=f"Trạm {active_station}")
 with col2:
     st.metric(label="⏳ Trạm xếp hàng kế tiếp", value=f"Trạm {next_station}")
 
-# Tạo dữ liệu ngẫu nhiên cho trạm hiện tại
-current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-scenarios = ["NORMAL", "MAX_HUMIDITY", "EXTREME_HOT", "LOST_SIGNAL"]
-weights = [0.85, 0.07, 0.05, 0.03]
-scenario = random.choices(scenarios, weights=weights, k=1)[0]
-
-if scenario == "NORMAL":
-    temp = round(random.uniform(26.5, 35.5), 1)
-    humi = round(random.uniform(55.0, 82.0), 1)
-elif scenario == "EXTREME_HOT":
-    temp = round(random.uniform(40.5, 43.5), 1)
-    humi = round(random.uniform(25.0, 38.0), 1)
-elif scenario == "MAX_HUMIDITY":
-    temp = round(random.uniform(19.0, 24.0), 1)
-    humi = round(random.uniform(99.5, 100.0), 1)
-elif scenario == "LOST_SIGNAL":
-    temp = round(random.uniform(25.0, 32.0), 1)
-    humi = 0.0
-
-if active_station == "5":
-    mock_packet = [{"time": current_time_str, "station": "5", "tempKK": temp, "humiKK": humi}]
-else:
-    mock_packet = [{"Thời gian": current_time_str, "STT": active_station, "Nhiệt độ": temp, "Độ ẩm": humi}]
+# CHỈ SINH DỮ LIỆU KHI TRẠNG THÁI ĐANG BẬT CHẠY
+if st.session_state.is_running:
+    current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    scenarios = ["NORMAL", "MAX_HUMIDITY", "EXTREME_HOT", "LOST_SIGNAL"]
+    weights = [0.85, 0.07, 0.05, 0.03]
+    scenario = random.choices(scenarios, weights=weights, k=1)[0]
     
-df_single_step = pd.DataFrame(mock_packet)
-process_incoming_data(df_single_step)
+    if scenario == "NORMAL":
+        temp = round(random.uniform(26.5, 35.5), 1)
+        humi = round(random.uniform(55.0, 82.0), 1)
+    elif scenario == "EXTREME_HOT":
+        temp = round(random.uniform(40.5, 43.5), 1)
+        humi = round(random.uniform(25.0, 38.0), 1)
+    elif scenario == "MAX_HUMIDITY":
+        temp = round(random.uniform(19.0, 24.0), 1)
+        humi = round(random.uniform(99.5, 100.0), 1)
+    elif scenario == "LOST_SIGNAL":
+        temp = round(random.uniform(25.0, 32.0), 1)
+        humi = 0.0
 
-# Cập nhật chỉ mục trạm chuẩn bị cho vòng kế tiếp
-st.session_state.current_station_index = (idx + 1) % len(STATIONS_LIST)
+    if active_station == "5":
+        mock_packet = [{"time": current_time_str, "station": "5", "tempKK": temp, "humiKK": humi}]
+    else:
+        mock_packet = [{"Thời gian": current_time_str, "STT": active_station, "Nhiệt độ": temp, "Độ ẩm": humi}]
+        
+    df_single_step = pd.DataFrame(mock_packet)
+    process_incoming_data(df_single_step)
+    
+    # Chuẩn bị tăng vị trí lên trạm kế tiếp cho lượt sau
+    st.session_state.current_station_index = (idx + 1) % len(STATIONS_LIST)
 
 
-# --- KHU VỰC ĐỒNG HỒ ĐẾM NGƯỢC HIỂN THỊ CHÍNH XÁC 30 GIÂY ---
+# Vùng hiển thị đồng hồ đếm ngược trực quan trên Web
 countdown_placeholder = st.empty()
 
 # --- BIỂU DIỄN BẢNG DỮ LIỆU LÊN APP SCREEN ---
@@ -242,15 +269,18 @@ if not df.empty:
     if processed_chunks:
         st.dataframe(pd.concat(processed_chunks, ignore_index=True), use_container_width=True)
 else:
-    st.info("🔄 Hệ thống đang kích hoạt xung nhịp quét vòng tròn trạm...")
+    st.info("🔌 Hệ thống trống dữ liệu, đang chờ vòng quét kích hoạt...")
 
 
 # =====================================================================
-# VÒNG LẶP ĐẾM NGƯỢC CHÍNH XÁC TỪ 30 GIÂY VỀ 0
+# QUẢN LÝ VÒNG LẶP THỜI GIAN THEO TRẠNG THÁI NÚT BẤM
 # =====================================================================
-for seconds_left in range(30, 0, -1):
-    countdown_placeholder.markdown(f"⏳ **Đang đếm ngược chu kỳ lệch pha:** `{seconds_left} giây nữa` sẽ chuyển sang trạm kế tiếp...")
-    time.sleep(1)
-
-# Hết đúng 30 giây, tự động tải lại trang để chuyển trạm
-st.rerun()
+if st.session_state.is_running:
+    # Nếu hệ thống đang bật -> Tiến hành chạy vòng lặp đếm ngược 30 giây
+    for seconds_left in range(30, 0, -1):
+        countdown_placeholder.markdown(f"⏳ **Đang đếm ngược chu kỳ lệch pha:** `{seconds_left} giây nữa` sẽ chuyển sang trạm kế tiếp...")
+        time.sleep(1)
+    st.rerun()
+else:
+    # Nếu hệ thống đã bị Dừng lại (Pause) -> Treo tĩnh màn hình tại đây, không đếm ngược nữa
+    countdown_placeholder.markdown("⏸️ **Bộ đếm thời gian tự động đang dừng.** Nhấn nút Bắt đầu phía trên để kích hoạt lại chu kỳ.")
