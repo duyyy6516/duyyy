@@ -9,10 +9,10 @@ import random
 from datetime import datetime
 
 # Cấu hình giao diện di động
-st.set_page_config(page_title="Hệ Thống MQTT Real-Time", page_icon="🚨", layout="centered")
+st.set_page_config(page_title="Hệ Thống MQTT Tốc Độ Cao", page_icon="🚨", layout="centered")
 
-st.title("🚨 Hệ Thống VPD Tự Động Giả Lập Real-Time")
-st.markdown("Ứng dụng đang tự động cập nhật dữ liệu và phân tích **5 giây/lần** (Không cần bấm nút).")
+st.title("🚨 Hệ Thống VPD Giả Lập Siêu Tốc 5s/Lần")
+st.markdown("Hệ thống đang tự động random thông số và **gửi trực tiếp về Telegram ngay lập tức** sau mỗi 5 giây.")
 
 # --- CẤU HÌNH THÔNG TIN KẾT NỐI (BOT CHẠY 1 MÌNH) ---
 MQTT_BROKER = "broker.hivemq.com"
@@ -24,10 +24,6 @@ TELEGRAM_CHAT_ID = "7290661009"
 # --- KHỞI TẠO STATE ---
 if "mqtt_df" not in st.session_state:
     st.session_state.mqtt_df = pd.DataFrame()
-
-# Lưu vết cảnh báo gần nhất của từng trạm để tránh spam Telegram
-if "last_alerts" not in st.session_state:
-    st.session_state.last_alerts = {} 
 
 # =====================================================================
 # CẤU HÌNH THANH TRƯỢT NGƯỠNG ĐỘNG
@@ -52,32 +48,33 @@ def calculate_vpd(temp, humi):
 def send_telegram_auto(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     try: 
-        requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"}, timeout=3)
+        # Bỏ timeout lâu, ép gửi realtime cực nhanh
+        requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"}, timeout=2)
     except: 
         pass
 
 def evaluate_status(vpd, temp, humi, station_id, low_t, high_t, mid_t):
     sid = str(station_id)
     if humi == 0:
-        return "Mất tín hiệu thiết bị", f"Trạm {sid} báo độ ẩm bằng 0%.", "Kiểm tra lại dây nguồn, giắc nối đầu dò.", "LOST_SIGNAL"
+        return "🔌 Mất tín hiệu thiết bị", f"Trạm {sid} báo độ ẩm bằng 0%.", "Kiểm tra lại dây nguồn, giắc nối đầu dò."
     
     if vpd > high_t and temp > 40.0 and humi < 40.0:
-        return "⚠️ CẢNH BÁO: KHÔ NÓNG GẮT", f"Trạm {sid} vượt ngưỡng khô gắt cài đặt ({vpd} kPa).", "CHẠY RA KÉO LƯỚI LAN ĐEN CẤT NẮNG, BẬT PHUN SƯƠNG BÙ ẨM KHẨN CẤP!", "EXTREME_HOT"
+        return "🔥 BÁO ĐỘNG: KHÔ NÓNG GẮT", f"Trạm {sid} vượt ngưỡng khô gắt cài đặt ({vpd} kPa).", "CHẠY RA KÉO LƯỚI LAN ĐEN CẤT NẮNG, BẬT PHUN SƯƠNG BÙ ẨM KHẨN CẤP!"
         
     if humi >= 99.5 or vpd == 0:
-        return "Không khí ẩm ướt bão hòa", f"Trạm {sid} báo độ ẩm chạm trần {humi}%.", "Bật ngay quạt hút đuổi ẩm và ngừng tưới nước ngay!", "MAX_HUMIDITY"
+        return "⚠️ THÔNG BÁO: BÃO HÒA ẨM", f"Trạm {sid} báo độ ẩm chạm trần {humi}%.", "Bật ngay quạt hút đuổi ẩm và ngừng tưới nước ngay!"
 
     if vpd < low_t:
-        return "Nhà kính quá ẩm", f"VPD thấp hơn mốc cài đặt ({vpd} < {low_t} kPa).", "Bật quạt đối lưu, mở cửa hông để thoát bớt hơi ẩm.", "LOW_VPD"
+        return "Nhà kính quá ẩm", f"VPD thấp hơn mốc cài đặt ({vpd} < {low_t} kPa).", "Bật quạt đối lưu, mở cửa hông để thoát bớt hơi ẩm."
     elif low_t <= vpd < mid_t:
-        return "Môi trường mát mẻ lý tưởng", f"VPD nằm trong khoảng ẩm dịu ngọt ({vpd} kPa).", "Mọi thứ bình thường. Tiếp tục duy trì.", "IDEAL_VPD"
+        return "Môi trường mát mẻ lý tưởng", f"VPD nằm trong khoảng ẩm dịu ngọt ({vpd} kPa).", "Mọi thứ bình thường. Tiếp tục duy trì."
     elif mid_t <= vpd <= high_t:
-        return "Thời tiết hoàn hảo", f"VPD đạt điểm vàng quang hợp ({vpd} kPa).", "Thời điểm vàng nuôi quả lớn. Giữ nguyên chế độ vườn.", "PERFECT_VPD"
+        return "Thời tiết hoàn hảo", f"VPD đạt điểm vàng quang hợp ({vpd} kPa).", "Thời điểm vàng nuôi quả lớn. Giữ nguyên chế độ vườn."
     
     if humi < 40.0:
-        return "Môi trường khô hanh", f"VPD vượt ngưỡng nhẹ ({vpd} kPa).", "Bật hệ thống phun sương giữa vườn để bù lại độ ẩm.", "DRY_AIR"
+        return "Môi trường khô hanh", f"VPD vượt ngưỡng nhẹ ({vpd} kPa).", "Bật hệ thống phun sương giữa vườn để bù lại độ ẩm."
     else:
-        return "Nhiệt độ tăng cao", f"Nhiệt độ nhà màng hầm nóng ({temp}°C).", "Tăng thời gian tưới nhỏ giọt dưới gốc cấp nước cho rễ.", "HIGH_TEMP"
+        return "Nhiệt độ tăng cao", f"Nhiệt độ nhà màng hầm nóng ({temp}°C).", "Tăng thời gian tưới nhỏ giọt dưới gốc cấp nước cho rễ."
 
 def process_incoming_data(df_new):
     if df_new.empty:
@@ -104,36 +101,35 @@ def process_incoming_data(df_new):
             vpd_val = round(calculate_vpd(t_val, h_val), 3)
             time_log = str(row[time_col])
             
-            _, _, _, alert_code = evaluate_status(vpd_val, t_val, h_val, station_id, low_t, high_t, mid_t)
+            # Lấy thông tin trạng thái văn bản để gửi đi
+            status, reason, action = evaluate_status(vpd_val, t_val, h_val, station_id, low_t, high_t, mid_t)
             
-            last_code = st.session_state.last_alerts.get(station_id)
-            if alert_code in ["LOST_SIGNAL", "EXTREME_HOT", "MAX_HUMIDITY"]:
-                if last_code != alert_code: 
-                    if alert_code == "LOST_SIGNAL":
-                        msg = f"🔌 *MẤT TÍN HIỆU THIẾT BỊ*\n⏱ Cập nhật: {time_log}\n📍 Vị trí: Trạm {station_id}\n📝 *Lý do:* Độ ẩm đột ngột tụt về 0%.\n🛠 *Hành động:* Ra vườn kiểm tra lại cục cảm biến ngay!"
-                    elif alert_code == "EXTREME_HOT":
-                        msg = f"🔥 *BÁO ĐỘNG CẢNH BÁO: KHÔ NÓNG GẮT*\n⏱ Cập nhật: {time_log}\n📍 Vị trí: Trạm {station_id}\n🌡 {t_val}°C | 💧 {h_val}%\n💨 *VPD thực tế:* {vpd_val} kPa\n🛠 *Hành động:* KÉO LƯỚI LAN ĐEN CẤT NẮNG, BẬT PHUN SƯƠNG GẤP!"
-                    elif alert_code == "MAX_HUMIDITY":
-                        msg = f"⚠️ *THÔNG BÁO: BÃO HÒA ẨM*\n⏱ Cập nhật: {time_log}\n📍 Vị trí: Trạm {station_id}\n💧 Độ ẩm chạm trần: {h_val}%\n🛠 *Hành động:* Bật ngay quạt hút đuổi ẩm và ngừng tưới nước ngay!"
-                    
-                    send_telegram_auto(msg)
-                    st.session_state.last_alerts[station_id] = alert_code
-            else:
-                st.session_state.last_alerts[station_id] = alert_code
+            # KHÔNG SÀI BỘ LỌC TRÙNG NỮA -> BẮN THẲNG LÊN TELEGRAM TẤT CẢ CÁC GÓI TIN 5s/LẦN
+            msg = (
+                f"📊 *CẬP NHẬT THÔNG SỐ VƯỜN METRIC*\n"
+                f"⏱ Thời gian: `{time_log}`\n"
+                f"📍 Vị trí: Trạm {station_id}\n"
+                f"🌡 Nhiệt độ: {t_val}°C | 💧 Độ ẩm: {h_val}%\n"
+                f"💨 Chỉ số VPD: *{vpd_val} kPa*\n"
+                f"📢 Trạng thái: *{status}*\n"
+                f"📝 Chi tiết: {reason}\n"
+                f"🛠 Khắc phục: _{action}_"
+            )
+            send_telegram_auto(msg)
 
     if st.session_state.mqtt_df.empty:
         st.session_state.mqtt_df = df_new
     else:
         st.session_state.mqtt_df = pd.concat([st.session_state.mqtt_df, df_new], ignore_index=True).drop_duplicates(subset=[stt_col, time_col]).tail(100)
 
-# --- CƠ CHẾ LẮNG NGHE MQTT (GIỮ LẠI ĐỂ NHẬN SONG SONG) ---
+# --- CƠ CHẾ LẮNG NGHE MQTT ---
 def on_message(client, userdata, message):
     try:
         payload_str = message.payload.decode("utf-8")
         new_data = json.loads(payload_str)
         df_new = pd.DataFrame(new_data)
         process_incoming_data(df_new)
-    except Exception as e:
+    except:
         pass
 
 @st.cache_resource
@@ -149,10 +145,9 @@ _ = start_mqtt_client()
 
 
 # =====================================================================
-# HÀM TỰ ĐỘNG GENERATE DỮ LIỆU THỰC TẾ TRÊN NỀN GIAO DIỆN
+# HÀM TỰ ĐỘNG SINH DỮ LIỆU ĐỂ BẮN REALTIME LÊN TELEGRAM
 # =====================================================================
 def auto_generate_random_data():
-    # Tỷ lệ: 85% Bình thường, 7% Quá ẩm, 5% Khô nóng, 3% Đứt dây cảm biến
     scenarios = ["NORMAL", "MAX_HUMIDITY", "EXTREME_HOT", "LOST_SIGNAL"]
     weights = [0.85, 0.07, 0.05, 0.03]
     scenario = random.choices(scenarios, weights=weights, k=1)[0]
@@ -215,7 +210,7 @@ if not df.empty:
             if station_id != "5" and h_val > 100: h_val /= 10.0
             
             vpd_val = round(calculate_vpd(t_val, h_val), 3)
-            status, reason, action, _ = evaluate_status(vpd_val, t_val, h_val, station_id, low_threshold, high_threshold, mid_threshold)
+            status, reason, action = evaluate_status(vpd_val, t_val, h_val, station_id, low_threshold, high_threshold, mid_threshold)
             
             processed_chunks.append(pd.DataFrame([{
                 "Thời gian": row[time_col],
@@ -232,11 +227,11 @@ if not df.empty:
         st.dataframe(pd.concat(processed_chunks, ignore_index=True), use_container_width=True)
 
 else:
-    st.info("🔄 Đang khởi tạo chu kỳ nạp dữ liệu đầu tiên...")
+    st.info("🔄 Đang nạp loạt dữ liệu realtime đầu tiên...")
 
 # =====================================================================
-# VÒNG LẶP TỰ ĐỘNG CHẠY NGẦM 5 GIÂY / LẦN
+# CHU KỲ BẮN TIN VÀ REFRESH 5 GIÂY TỰ ĐỘNG
 # =====================================================================
 time.sleep(5)
-auto_generate_random_data()  # Tự động sinh dữ liệu mới vào bộ nhớ
-st.rerun()  # Vẽ lại màn hình ngay lập tức
+auto_generate_random_data()  
+st.rerun()
