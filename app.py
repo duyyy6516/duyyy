@@ -37,7 +37,6 @@ low_threshold = st.slider("1. Ngưỡng VPD Thấp (Quá ẩm):", min_value=0.1,
 high_threshold = st.slider("2. Ngưỡng VPD Cao (Khô nóng):", min_value=1.0, max_value=3.0, value=1.2, step=0.05, format="%.2f kPa")
 mid_threshold = round((low_threshold + high_threshold) / 2, 2)
 
-# Cập nhật ngưỡng vào session_state để hàm MQTT chạy ngầm hoặc nút bấm đọc được
 st.session_state.low_threshold = low_threshold
 st.session_state.high_threshold = high_threshold
 st.session_state.mid_threshold = mid_threshold
@@ -80,7 +79,6 @@ def evaluate_status(vpd, temp, humi, station_id, low_t, high_t, mid_t):
     else:
         return "Nhiệt độ tăng cao", f"Nhiệt độ nhà màng hầm nóng ({temp}°C).", "Tăng thời gian tưới nhỏ giọt dưới gốc cấp nước cho rễ.", "HIGH_TEMP"
 
-# --- HÀM XỬ LÝ CHUNG KHI CÓ DỮ LIỆU ĐỔ VỀ (TỪ MQTT HOẶC TỪ RANDOM TEST) ---
 def process_incoming_data(df_new):
     if df_new.empty:
         return
@@ -112,11 +110,11 @@ def process_incoming_data(df_new):
             if alert_code in ["LOST_SIGNAL", "EXTREME_HOT", "MAX_HUMIDITY"]:
                 if last_code != alert_code: 
                     if alert_code == "LOST_SIGNAL":
-                        msg = f"🔌 *[TEST] MẤT TÍN HIỆU THIẾT BỊ*\n⏱ Cập nhật: {time_log}\n📍 Vị trí: Trạm {station_id}\n📝 *Lý do:* Độ ẩm đột ngột tụt về 0%.\n🛠 *Hành động:* Ra vườn kiểm tra lại cục cảm biến ngay!"
+                        msg = f"🔌 *MẤT TÍN HIỆU THIẾT BỊ*\n⏱ Cập nhật: {time_log}\n📍 Vị trí: Trạm {station_id}\n📝 *Lý do:* Độ ẩm đột ngột tụt về 0%.\n🛠 *Hành động:* Ra vườn kiểm tra lại cục cảm biến ngay!"
                     elif alert_code == "EXTREME_HOT":
-                        msg = f"🔥 *[TEST] BÁO ĐỘNG: KHÔ NÓNG GẮT*\n⏱ Cập nhật: {time_log}\n📍 Vị trí: Trạm {station_id}\n🌡 {t_val}°C | 💧 {h_val}%\n💨 *VPD thực tế:* {vpd_val} kPa\n🛠 *Hành động:* KÉO LƯỚI LAN ĐEN CẤT NẮNG, BẬT PHUN SƯƠNG GẤP!"
+                        msg = f"🔥 *BÁO ĐỘNG CẢNH BÁO: KHÔ NÓNG GẮT*\n⏱ Cập nhật: {time_log}\n📍 Vị trí: Trạm {station_id}\n🌡 {t_val}°C | 💧 {h_val}%\n💨 *VPD thực tế:* {vpd_val} kPa\n🛠 *Hành động:* KÉO LƯỚI LAN ĐEN CẤT NẮNG, BẬT PHUN SƯƠNG GẤP!"
                     elif alert_code == "MAX_HUMIDITY":
-                        msg = f"⚠️ *[TEST] THÔNG BÁO: BÃO HÒA ẨM*\n⏱ Cập nhật: {time_log}\n📍 Vị trí: Trạm {station_id}\n💧 Độ ẩm chạm trần: {h_val}%\n🛠 *Hành động:* Bật ngay quạt hút đuổi ẩm và ngừng tưới nước ngay!"
+                        msg = f"⚠️ *THÔNG BÁO: BÃO HÒA ẨM*\n⏱ Cập nhật: {time_log}\n📍 Vị trí: Trạm {station_id}\n💧 Độ ẩm chạm trần: {h_val}%\n🛠 *Hành động:* Bật ngay quạt hút đuổi ẩm và ngừng tưới nước ngay!"
                     
                     send_telegram_auto(msg)
                     st.session_state.last_alerts[station_id] = alert_code
@@ -128,7 +126,6 @@ def process_incoming_data(df_new):
     else:
         st.session_state.mqtt_df = pd.concat([st.session_state.mqtt_df, df_new], ignore_index=True).drop_duplicates(subset=[stt_col, time_col]).tail(100)
 
-# --- CƠ CHẾ LẮNG NGHE MQTT ---
 def on_message(client, userdata, message):
     try:
         payload_str = message.payload.decode("utf-8")
@@ -150,27 +147,35 @@ def start_mqtt_client():
 _ = start_mqtt_client()
 
 # =====================================================================
-# CHỨC NĂNG RANDOM GIẢ LẬP DỮ LIỆU ĐỂ TEST TELEGRAM
+# CHỨC NĂNG RANDOM PHÂN PHỐI THỰC TẾ (WEIGHTED PROBABILITY)
 # =====================================================================
 st.subheader("🧪 Bộ Công Cụ Giả Lập Dữ Liệu")
 
 if st.button("🎲 Bấm để sinh dữ liệu RANDOM ngẫu nhiên (Gửi test Tele)", use_container_width=True):
-    scenario = random.choice(["NORMAL", "EXTREME_HOT", "MAX_HUMIDITY", "LOST_SIGNAL"])
+    # Cấu hình trọng số: NORMAL (85%), MAX_HUMIDITY (7%), EXTREME_HOT (5%), LOST_SIGNAL (3%)
+    scenarios = ["NORMAL", "MAX_HUMIDITY", "EXTREME_HOT", "LOST_SIGNAL"]
+    weights = [0.85, 0.07, 0.05, 0.03]
+    scenario = random.choices(scenarios, weights=weights, k=1)[0]
+    
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     test_station = random.choice(["1", "2", "5"]) 
     
-    if scenario == "EXTREME_HOT":
-        temp = round(random.uniform(41.0, 45.0), 1)
-        humi = round(random.uniform(15.0, 35.0), 1)
+    if scenario == "NORMAL":
+        # Dữ liệu nhà màng thực tế ban ngày dao động ổn định
+        temp = round(random.uniform(26.5, 35.5), 1)
+        humi = round(random.uniform(55.0, 82.0), 1)
+    elif scenario == "EXTREME_HOT":
+        # Nhà kính bị hầm đỉnh điểm ban trưa nắng gắt
+        temp = round(random.uniform(40.5, 43.5), 1)
+        humi = round(random.uniform(25.0, 38.0), 1)
     elif scenario == "MAX_HUMIDITY":
-        temp = round(random.uniform(22.0, 26.0), 1)
-        humi = 100.0
+        # Ban đêm sương xuống ẩm bão hòa kịch trần
+        temp = round(random.uniform(19.0, 24.0), 1)
+        humi = round(random.uniform(99.5, 100.0), 1)
     elif scenario == "LOST_SIGNAL":
-        temp = round(random.uniform(25.0, 30.0), 1)
+        # Cảm biến mất dây (Độ ẩm về lỗi 0%)
+        temp = round(random.uniform(25.0, 32.0), 1)
         humi = 0.0
-    else:
-        temp = round(random.uniform(27.0, 34.0), 1)
-        humi = round(random.uniform(55.0, 75.0), 1)
 
     if test_station == "5":
         mock_data = [{"time": current_time, "station": "5", "tempKK": temp, "humiKK": humi}]
@@ -179,7 +184,12 @@ if st.button("🎲 Bấm để sinh dữ liệu RANDOM ngẫu nhiên (Gửi test
         
     df_mock = pd.DataFrame(mock_data)
     process_incoming_data(df_mock)
-    st.success(f"Đã giả lập thành công kịch bản **{scenario}** tại Trạm {test_station} ({temp}°C, {humi}%)!")
+    
+    # Hiển thị thông tin lên màn hình app
+    if scenario == "NORMAL":
+        st.info(f"📊 [Dữ liệu bình thường] Trạm {test_station}: {temp}°C, {humi}%")
+    else:
+        st.warning(f"🚨 [Kịch bản {scenario} xuất hiện hy hữu] Trạm {test_station}: {temp}°C, {humi}%")
 
 # --- BIỂU DIỄN DỮ LIỆU LÊN APP SCREEN ---
 df = st.session_state.mqtt_df.copy()
@@ -199,7 +209,6 @@ if not df.empty:
     processed_chunks = []
     
     for station_id in df[stt_col].unique():
-        # LỌC AN TOÀN: Tránh sập app khi bảng rỗng
         station_df = df[df[stt_col] == station_id]
         if station_df.empty:
             continue
@@ -234,6 +243,5 @@ if not df.empty:
 else:
     st.info("🔌 Hệ thống đang mở cổng sóng, chờ thiết bị bắn dữ liệu MQTT qua mạng hoặc nhấn nút Random Test phía trên...")
 
-# Vòng lặp tự động reload giao diện sau mỗi 30s
 time.sleep(30)
 st.rerun()
