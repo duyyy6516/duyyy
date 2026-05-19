@@ -5,7 +5,6 @@ import paho.mqtt.client as mqtt
 import requests
 import json
 import random  
-import streamlit.components.v1 as components
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
 
@@ -82,7 +81,7 @@ st.session_state.low_threshold = low_threshold
 st.session_state.high_threshold = high_threshold
 
 # =====================================================================
-# LOGIC TOÁN HỌC VÀ ĐÁNH GIÁ TRẠNG THÁI (ĐÃ TÍCH HỢP BÁO ĐỘNG SỚM)
+# LOGIC TOÁN HỌC VÀ ĐÁNH GIÁ TRẠNG THÁI (ĐÃ SỬA THEO LOGIC KHOẢNG ĐÚNG)
 # =====================================================================
 
 def calculate_vpd(temp, humi):
@@ -99,7 +98,7 @@ def send_telegram_auto(message):
 def evaluate_status(vpd, temp, humi, station_id, low_t, high_t):
     sid = str(station_id)
     
-    # 1. Các trạng thái lỗi thiết bị hoặc bão hòa cực đoan (Bắt buộc check trước)
+    # 1. Các trạng thái lỗi thiết bị hoặc bão hòa ẩm (Ưu tiên số 1)
     if humi == 0:
         return "🔌 Mất tín hiệu thiết bị", f"Trạm {sid} báo độ ẩm bằng 0%.", "Kiểm tra lại dây nguồn, giắc nối đầu dò."
     
@@ -109,26 +108,19 @@ def evaluate_status(vpd, temp, humi, station_id, low_t, high_t):
     if humi >= 99.5 or vpd == 0:
         return "⚠️ THÔNG BÁO: BÃO HÒA ẨM", f"Trạm {sid} báo độ ẩm chạm trần {humi}%.", "Bật ngay quạt hút đuổi ẩm và ngừng tưới nước ngay!"
 
-    # 2. Ngưỡng lỗi thực tế (Vượt hẳn ra ngoài ranh giới cài đặt)
+    # 2. Logic phân 3 vùng lớn theo ý bạn
     if vpd < low_t:
-        return "❌ Nhà kính quá ẩm", f"VPD thấp hơn mốc cài đặt ({vpd} < {low_t} kPa).", "Bật quạt đối lưu mạnh, mở rộng cửa hông để thoát hơi ẩm."
+        return "Nhà kính quá ẩm", f"VPD thấp hơn mốc cài đặt ({vpd} < {low_t} kPa).", "Bật quạt đối lưu, mở cửa hông để thoát bớt hơi ẩm."
         
-    elif vpd > high_t:
-        if humi < 40.0:
-            return "❌ Môi trường khô hanh", f"VPD vượt ngưỡng cao ({vpd} kPa) do thiếu ẩm.", "Bật hệ thống phun sương giữa vườn để bù lại độ ẩm."
-        else:
-            return "❌ Nhiệt độ tăng cao", f"Nhiệt độ nhà màng hầm nóng ({temp}°C) làm đẩy VPD lên {vpd} kPa.", "Tăng thời gian tưới nhỏ giọt dưới gốc cấp nước cho rễ."
-
-    # 3. VÙNG ĐỆM: Các khoảng CẢNH BÁO SỚM khi gần chạm ngưỡng (Biên độ 0.1 kPa)
-    elif low_t <= vpd < (low_t + 0.1):
-        return "⚠️ CẢNH BÁO SỚM: SẮP QUÁ ẨM", f"VPD tiến sát mốc dưới ({vpd} kPa). Độ ẩm đang tăng nhanh.", "Nên tăng nhẹ nhiệt độ phòng hoặc bật quạt đối lưu để kéo VPD lên."
-        
-    elif (high_t - 0.1) <= vpd <= high_t:
-        return "⚠️ CẢNH BÁO SỚM: SẮP KHÔ NÓNG", f"VPD tiến sát mốc trên ({vpd} kPa). Môi trường đang khô dần.", "Nên tăng độ ẩm (phun sương nhẹ) hoặc kéo lưới lan giảm nhiệt độ phòng."
-
-    # 4. Khoảng an toàn tuyệt đối nằm giữa
-    else:
+    elif low_t <= vpd <= high_t:
+        # Nằm trọn vẹn ở giữa ngưỡng Thấp và ngưỡng Cao -> Môi trường hoàn hảo
         return "Môi trường hoàn hảo lý tưởng", f"VPD đạt điểm vàng quang hợp ({vpd} kPa).", "Thời điểm vàng để cây sinh trưởng tốt. Giữ nguyên chế độ vườn."
+        
+    else: # Trường hợp này CHẮC CHẮN vpd > high_t
+        if humi < 40.0:
+            return "Môi trường khô hanh", f"VPD vượt ngưỡng cao ({vpd} kPa) do thiếu ẩm.", "Bật hệ thống phun sương giữa vườn để bù lại độ ẩm."
+        else:
+            return "Nhiệt độ tăng cao", f"Nhiệt độ nhà màng hầm nóng ({temp}°C) làm đẩy VPD lên {vpd} kPa.", "Tăng thời gian tưới nhỏ giọt dưới gốc cấp nước cho rễ."
 
 def process_incoming_data(df_new):
     if df_new.empty:
@@ -251,37 +243,8 @@ if st.session_state.is_running and st.session_state.last_processed_idx != idx:
     st.session_state.last_processed_idx = idx
     st.session_state.current_station_index = (idx + 1) % len(STATIONS_LIST)
 
-
 # =====================================================================
-# BỘ ĐẾM NGƯỢC UI REALTIME
-# =====================================================================
-if st.session_state.is_running:
-    countdown_html = """
-    <div style="font-family: sans-serif; background-color: #f0f2f6; padding: 12px; border-radius: 8px; border-left: 5px solid #1f77b4; margin-bottom: 15px;">
-        <span style="color: #1f77b4; font-weight: bold;">⏱️ ĐỒNG HỒ CHU KỲ VÒNG QUÉT:</span> 
-        <span id="countdown-timer" style="font-size: 16px; font-weight: bold; color: #ff4b4b;">30</span> giây nữa sẽ quét trạm tiếp theo...
-    </div>
-    <script>
-        let timeLeft = 30;
-        const timerElement = document.getElementById('countdown-timer');
-        const interval = setInterval(function() {
-            timeLeft--;
-            if (timeLeft <= 0) {
-                clearInterval(interval);
-                timerElement.innerText = "0";
-            } else {
-                timerElement.innerText = timeLeft;
-            }
-        }, 1000);
-    </script>
-    """
-    components.html(countdown_html, height=55)
-else:
-    st.info("⏸️ **Bộ đếm thời gian tự động đang dừng.** Nhấn nút Bắt đầu phía trên để kích hoạt lại chu kỳ.")
-
-
-# =====================================================================
-# BIỂU DIỄN BẢNG DỮ LIỆU LÊN APP SCREEN
+# BIỂU DIỄN BẢNG DỮ LIỆU LÊN APP SCREEN (TỰ ĐỘNG RESET THEO VÒNG)
 # =====================================================================
 df = st.session_state.mqtt_df.copy()
 
@@ -316,7 +279,7 @@ for station_id in STATIONS_LIST:
     
     vpd_val = round(calculate_vpd(t_val, h_val), 3)
     
-    # Đồng bộ giá trị thanh trượt trực tiếp xuống bảng vẽ
+    # Đưa giá trị thanh trượt trực tiếp xuống bảng vẽ để đối chiếu khoảng chuẩn xác
     status, reason, action = evaluate_status(vpd_val, t_val, h_val, station_id, low_threshold, high_threshold)
     
     processed_chunks.append(pd.DataFrame([{
@@ -333,3 +296,8 @@ for station_id in STATIONS_LIST:
 if processed_chunks:
     final_table = pd.concat(processed_chunks, ignore_index=True)
     st.dataframe(final_table, use_container_width=True)
+
+if st.session_state.is_running:
+    st.info("⏱️ Hệ thống đang chạy ngầm ổn định. Trang web tự động cập nhật trạm mới chính xác mỗi **30 giây**.")
+else:
+    st.markdown("⏸️ **Bộ đếm thời gian tự động đang dừng.** Nhấn nút Bắt đầu phía trên để kích hoạt lại chu kỳ.")
