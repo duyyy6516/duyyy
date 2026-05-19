@@ -73,7 +73,7 @@ st.session_state.high_threshold = high_threshold
 st.session_state.mid_threshold = mid_threshold
 
 # =====================================================================
-# LOGIC TOÁN HỌC VÀ ĐÁNH GIÁ TRẠNG THÁI
+# LOGIC TOÁN HỌC VÀ ĐÁNH GIÁ TRẠNG THÁI (ĐÃ FIX LỖI LOGIC SAI KHOẢNG)
 # =====================================================================
 
 def calculate_vpd(temp, humi):
@@ -89,6 +89,8 @@ def send_telegram_auto(message):
 
 def evaluate_status(vpd, temp, humi, station_id, low_t, high_t, mid_t):
     sid = str(station_id)
+    
+    # 1. Các trạng thái lỗi phần cứng hoặc cực đoan nguy hiểm (Ưu tiên check trước)
     if humi == 0:
         return "🔌 Mất tín hiệu thiết bị", f"Trạm {sid} báo độ ẩm bằng 0%.", "Kiểm tra lại dây nguồn, giắc nối đầu dò."
     
@@ -98,17 +100,22 @@ def evaluate_status(vpd, temp, humi, station_id, low_t, high_t, mid_t):
     if humi >= 99.5 or vpd == 0:
         return "⚠️ THÔNG BÁO: BÃO HÒA ẨM", f"Trạm {sid} báo độ ẩm chạm trần {humi}%.", "Bật ngay quạt hút đuổi ẩm và ngừng tưới nước ngay!"
 
+    # 2. Các khoảng môi trường ĐÚNG / LÝ TƯỞNG dựa trên thanh trượt cài đặt
     if vpd < low_t:
         return "Nhà kính quá ẩm", f"VPD thấp hơn mốc cài đặt ({vpd} < {low_t} kPa).", "Bật quạt đối lưu, mở cửa hông để thoát bớt hơi ẩm."
+        
     elif low_t <= vpd < mid_t:
         return "Môi trường mát mẻ lý tưởng", f"VPD nằm trong khoảng ẩm dịu ngọt ({vpd} kPa).", "Mọi thứ bình thường. Tiếp tục duy trì."
+        
     elif mid_t <= vpd <= high_t:
         return "Thời tiết hoàn hảo", f"VPD đạt điểm vàng quang hợp ({vpd} kPa).", "Thời điểm vàng nuôi quả lớn. Giữ nguyên chế độ vườn."
-    
-    if humi < 40.0:
-        return "Môi trường khô hanh", f"VPD vượt ngưỡng nhẹ ({vpd} kPa).", "Bật hệ thống phun sương giữa vườn để bù lại độ ẩm."
+        
+    # 3. Khi vượt qua tất cả các khoảng lý tưởng ở trên (Nghĩa là chắc chắn VPD > high_t)
     else:
-        return "Nhiệt độ tăng cao", f"Nhiệt độ nhà màng hầm nóng ({temp}°C).", "Tăng thời gian tưới nhỏ giọt dưới gốc cấp nước cho rễ."
+        if humi < 40.0:
+            return "Môi trường khô hanh", f"VPD vượt ngưỡng cao ({vpd} kPa) do thiếu ẩm.", "Bật hệ thống phun sương giữa vườn để bù lại độ ẩm."
+        else:
+            return "Nhiệt độ tăng cao", f"Nhiệt độ nhà màng hầm nóng ({temp}°C) làm đẩy VPD lên {vpd} kPa.", "Tăng thời gian tưới nhỏ giọt dưới gốc cấp nước cho rễ."
 
 def process_incoming_data(df_new):
     if df_new.empty:
@@ -238,7 +245,7 @@ if st.session_state.is_running:
 countdown_placeholder = st.empty()
 
 # =====================================================================
-# BIỂU DIỄN BẢNG DỮ LIỆU LÊN APP SCREEN (ĐÃ FIX LỖI ĐÈ TRẠNG THÁI)
+# BIỂU DIỄN BẢNG DỮ LIỆU LÊN APP SCREEN (CỐ ĐỊNH 5 TRẠM KHÔNG BỊ NHẢY)
 # =====================================================================
 df = st.session_state.mqtt_df.copy()
 
