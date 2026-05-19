@@ -12,7 +12,7 @@ from datetime import datetime
 st.set_page_config(page_title="Hệ Thống Quét Cuốn Chiếu", page_icon="🚨", layout="centered")
 
 st.title("🚨 Giám Sát Real-Time Quét Vòng 5 Trạm")
-st.markdown("Mô phỏng: **Mỗi trạm gửi cách nhau 30s, các trạm lệch pha nhau đúng 5s**.")
+st.markdown("Mô phỏng: **Mỗi trạm gửi cách nhau 150s, các trạm lệch pha nhau đúng 30s**.")
 
 # --- CẤU HÌNH THÔNG TIN KẾT NỐI (BOT CHẠY 1 MÌNH) ---
 MQTT_BROKER = "broker.hivemq.com"
@@ -147,7 +147,7 @@ _ = start_mqtt_client()
 
 
 # =====================================================================
-# THUẬT TOÁN GIẢ LẬP LỆCH PHA 5 GIÂY VÀ ĐỒNG HỒ ĐẾM NGƯỢC REAL-TIME
+# THUẬT TOÁN GIẢ LẬP LỆCH PHA 30 GIÂY VÀ ĐỒNG HỒ ĐẾM NGƯỢC REAL-TIME
 # =====================================================================
 st.subheader("⏱️ Tiến Độ Điều Phối Xung Nhịp")
 
@@ -193,7 +193,7 @@ process_incoming_data(df_single_step)
 st.session_state.current_station_index = (idx + 1) % len(STATIONS_LIST)
 
 
-# --- KHU VỰC ĐỒNG HỒ ĐẾM NGƯỢC HIỂN THỊ CHÍNH XÁC 5 GIÂY ---
+# --- KHU VỰC ĐỒNG HỒ ĐẾM NGƯỢC HIỂN THỊ CHÍNH XÁC 30 GIÂY ---
 countdown_placeholder = st.empty()
 
 # --- BIỂU DIỄN BẢNG DỮ LIỆU LÊN APP SCREEN ---
@@ -246,12 +246,11 @@ else:
 
 
 # =====================================================================
-# VÒNG LẶP ĐẾM NGƯỢC TỪNG GIÂY (GIÚP USER QUAN SÁT TRỰC QUAN)
+# VÒNG LẶP ĐẾM NGƯỢC CHÍNH XÁC TỪ 30 GIÂY VỀ 0
 # =====================================================================
-for seconds_left in range(5, 0, -1):
-    # Cập nhật chữ đếm ngược và thanh chạy tiến trình (Progress Bar) lên web
+for seconds_left in range(30, 0, -1):
     countdown_placeholder.markdown(f"⏳ **Đang đếm ngược chu kỳ lệch pha:** `{seconds_left} giây nữa` sẽ chuyển sang trạm kế tiếp...")
     time.sleep(1)
 
-# Hết 5 giây, tự động tải lại trang để chuyển trạm
+# Hết đúng 30 giây, tự động tải lại trang để chuyển trạm
 st.rerun()
