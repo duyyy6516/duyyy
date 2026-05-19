@@ -151,10 +151,18 @@ def process_incoming_data(df_new):
             )
             send_telegram_auto(msg)
 
+    # Đảm bảo đồng bộ tên cột thống nhất trước khi concat vào Database lưu trữ tạm thời của Session
+    df_normalized = df_new.copy()
+    if 'time' in df_normalized.columns: df_normalized.rename(columns={'time': 'Thời gian'}, inplace=True)
+    if 'station' in df_normalized.columns: df_normalized.rename(columns={'station': 'STT'}, inplace=True)
+    if 'tempKK' in df_normalized.columns: df_normalized.rename(columns={'tempKK': 'Nhiệt độ'}, inplace=True)
+    if 'humiKK' in df_normalized.columns: df_normalized.rename(columns={'humiKK': 'Độ ẩm'}, inplace=True)
+    if 'Nhiệt Độ' in df_normalized.columns: df_normalized.rename(columns={'Nhiệt Độ': 'Nhiệt độ'}, inplace=True)
+
     if st.session_state.mqtt_df.empty:
-        st.session_state.mqtt_df = df_new
+        st.session_state.mqtt_df = df_normalized
     else:
-        st.session_state.mqtt_df = pd.concat([st.session_state.mqtt_df, df_new], ignore_index=True).drop_duplicates(subset=[stt_col, time_col]).tail(100)
+        st.session_state.mqtt_df = pd.concat([st.session_state.mqtt_df, df_normalized], ignore_index=True).drop_duplicates(subset=['STT', 'Thời gian']).tail(200)
 
 # --- CƠ CHẾ LẮNG NGHE MQTT ---
 def on_message(client, userdata, message):
@@ -229,51 +237,61 @@ if st.session_state.is_running:
 # Vùng hiển thị đồng hồ đếm ngược trực quan trên Web
 countdown_placeholder = st.empty()
 
-# --- BIỂU DIỄN BẢNG DỮ LIỆU LÊN APP SCREEN ---
+# =====================================================================
+# BIỂU DIỄN BẢNG DỮ LIỆU LÊN APP SCREEN (ĐÃ FIX LỖI ĐÈ TRẠNG THÁI)
+# =====================================================================
 df = st.session_state.mqtt_df.copy()
 
 if not df.empty:
-    time_col = 'Thời gian' if 'Thời gian' in df.columns else 'time'
-    stt_col = 'STT' if 'STT' in df.columns else 'station'
-    
-    df[time_col] = df[time_col].astype(str)
-    df[stt_col] = df[stt_col].astype(str)
-    df = df.sort_values(by=time_col, ascending=True)
-    
-    st.subheader("🔔 Bảng Trạng Thái 5 Trạm Real-Time")
+    st.subheader("🔔 Bảng Trạng Thái Có Định 5 Trạm Real-Time")
     processed_chunks = []
     
+    # Quét qua danh sách cố định từ Trạm 1 đến Trạm 5
     for station_id in STATIONS_LIST:
-        station_df = df[df[stt_col] == station_id]
+        # Lọc toàn bộ dữ liệu của riêng trạm này
+        station_df = df[df['STT'].astype(str) == str(station_id)]
+        
         if station_df.empty:
+            # Nếu chưa có dữ liệu, tạo dòng trống chờ bộ quét chạy qua chứ không bỏ trống bảng
+            processed_chunks.append(pd.DataFrame([{
+                "Thời gian": "Chưa có dữ liệu",
+                "Số Trạm": f"Trạm {station_id}",
+                "Nhiệt độ (°C)": None,
+                "Độ ẩm (%)": None,
+                "VPD (kPa)": None,
+                "Trạng Thái Vườn": "💤 Đang chờ quét vòng",
+                "Lý Do Từ Cảm Biến": "-",
+                "Hành Động Khắc Phục": "-"
+            }]))
             continue
             
-        row = station_df.tail(1).iloc[0]
-        t_col = 'tempKK' if station_id == "5" else ('Nhiệt Độ' if 'Nhiệt Độ' in df.columns else 'Nhiệt độ')
-        h_col = 'humiKK' if station_id == "5" else 'Độ ẩm'
+        # Lấy dòng dữ liệu mới nhất (cuối cùng) thuộc về trạm này
+        row = station_df.sort_values(by='Thời gian', ascending=True).tail(1).iloc[0]
         
-        if t_col in df.columns and h_col in df.columns and not pd.isna(row[t_col]) and not pd.isna(row[h_col]):
-            t_val = pd.to_numeric(row[t_col])
-            h_val = pd.to_numeric(row[h_col])
-            if station_id != "5" and t_val > 100: t_val /= 10.0
-            if station_id != "5" and h_val > 100: h_val /= 10.0
-            
-            vpd_val = round(calculate_vpd(t_val, h_val), 3)
-            status, reason, action = evaluate_status(vpd_val, t_val, h_val, station_id, low_threshold, high_threshold, mid_threshold)
-            
-            processed_chunks.append(pd.DataFrame([{
-                "Thời gian": row[time_col],
-                "Số Trạm": f"Trạm {station_id}",
-                "Nhiệt độ (°C)": t_val,
-                "Độ ẩm (%)": h_val,
-                "VPD (kPa)": vpd_val,
-                "Trạng Thái Vườn": status,
-                "Lý Do Từ Cảm Biến": reason,
-                "Hành Động Khắc Phục": action
-            }]))
+        t_val = pd.to_numeric(row['Nhiệt độ'])
+        h_val = pd.to_numeric(row['Độ ẩm'])
+        
+        # Chuẩn hóa giá trị chia 10 nếu thiết bị gửi sai định dạng
+        if str(station_id) != "5" and t_val > 100: t_val /= 10.0
+        if str(station_id) != "5" and h_val > 100: h_val /= 10.0
+        
+        vpd_val = round(calculate_vpd(t_val, h_val), 3)
+        status, reason, action = evaluate_status(vpd_val, t_val, h_val, station_id, low_threshold, high_threshold, mid_threshold)
+        
+        processed_chunks.append(pd.DataFrame([{
+            "Thời gian": row['Thời gian'],
+            "Số Trạm": f"Trạm {station_id}",
+            "Nhiệt độ (°C)": t_val,
+            "Độ ẩm (%)": h_val,
+            "VPD (kPa)": vpd_val,
+            "Trạng Thái Vườn": status,
+            "Lý Do Từ Cảm Biến": reason,
+            "Hành Động Khắc Phục": action
+        }]))
             
     if processed_chunks:
-        st.dataframe(pd.concat(processed_chunks, ignore_index=True), use_container_width=True)
+        final_table = pd.concat(processed_chunks, ignore_index=True)
+        st.dataframe(final_table, use_container_width=True)
 else:
     st.info("🔌 Hệ thống trống dữ liệu, đang chờ vòng quét kích hoạt...")
 
