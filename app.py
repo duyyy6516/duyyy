@@ -5,6 +5,7 @@ import paho.mqtt.client as mqtt
 import requests
 import json
 import random  
+import streamlit.components.v1 as components
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
 
@@ -46,6 +47,7 @@ STATIONS_LIST = ["1", "2", "3", "4", "5"]
 # BỘ TỰ ĐỘNG LÀM MỚI (XUNG NHỊP CHUẨN 30 GIÂY)
 # =====================================================================
 if st.session_state.is_running:
+    # Cứ đúng 30s kích hoạt refresh trang để nạp trạm mới
     st_autorefresh(interval=30000, key="iot_refresh")
 
 # =====================================================================
@@ -81,7 +83,7 @@ st.session_state.low_threshold = low_threshold
 st.session_state.high_threshold = high_threshold
 
 # =====================================================================
-# LOGIC TOÁN HỌC VÀ ĐÁNH GIÁ TRẠNG THÁI (ĐÃ SỬA THEO LOGIC KHOẢNG ĐÚNG)
+# LOGIC TOÁN HỌC VÀ ĐÁNH GIÁ TRẠNG THÁI
 # =====================================================================
 
 def calculate_vpd(temp, humi):
@@ -98,7 +100,6 @@ def send_telegram_auto(message):
 def evaluate_status(vpd, temp, humi, station_id, low_t, high_t):
     sid = str(station_id)
     
-    # 1. Các trạng thái lỗi thiết bị hoặc bão hòa ẩm (Ưu tiên số 1)
     if humi == 0:
         return "🔌 Mất tín hiệu thiết bị", f"Trạm {sid} báo độ ẩm bằng 0%.", "Kiểm tra lại dây nguồn, giắc nối đầu dò."
     
@@ -108,15 +109,13 @@ def evaluate_status(vpd, temp, humi, station_id, low_t, high_t):
     if humi >= 99.5 or vpd == 0:
         return "⚠️ THÔNG BÁO: BÃO HÒA ẨM", f"Trạm {sid} báo độ ẩm chạm trần {humi}%.", "Bật ngay quạt hút đuổi ẩm và ngừng tưới nước ngay!"
 
-    # 2. Logic phân 3 vùng lớn theo ý bạn
     if vpd < low_t:
         return "Nhà kính quá ẩm", f"VPD thấp hơn mốc cài đặt ({vpd} < {low_t} kPa).", "Bật quạt đối lưu, mở cửa hông để thoát bớt hơi ẩm."
         
     elif low_t <= vpd <= high_t:
-        # Nằm trọn vẹn ở giữa ngưỡng Thấp và ngưỡng Cao -> Môi trường hoàn hảo
         return "Môi trường hoàn hảo lý tưởng", f"VPD đạt điểm vàng quang hợp ({vpd} kPa).", "Thời điểm vàng để cây sinh trưởng tốt. Giữ nguyên chế độ vườn."
         
-    else: # Trường hợp này CHẮC CHẮN vpd > high_t
+    else: 
         if humi < 40.0:
             return "Môi trường khô hanh", f"VPD vượt ngưỡng cao ({vpd} kPa) do thiếu ẩm.", "Bật hệ thống phun sương giữa vườn để bù lại độ ẩm."
         else:
@@ -212,6 +211,7 @@ with col2:
 if st.session_state.is_running and st.session_state.last_processed_idx != idx:
     current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
+    # Xóa sạch bảng dữ liệu cũ khi vòng mới bắt đầu quay lại Trạm 1
     if active_station == "1":
         st.session_state.mqtt_df = pd.DataFrame()
 
@@ -242,6 +242,36 @@ if st.session_state.is_running and st.session_state.last_processed_idx != idx:
     
     st.session_state.last_processed_idx = idx
     st.session_state.current_station_index = (idx + 1) % len(STATIONS_LIST)
+
+
+# =====================================================================
+# BỘ ĐẾM NGƯỢC UI REALTIME (JS CHẠY ĐỘC LẬP KHÔNG LÀM LOẠN PYTHON)
+# =====================================================================
+if st.session_state.is_running:
+    # Đoạn mã nhúng HTML + JS hiển thị đồng hồ đếm ngược siêu mượt
+    countdown_html = """
+    <div style="font-family: sans-serif; background-color: #f0f2f6; padding: 12px; border-radius: 8px; border-left: 5px solid #1f77b4; margin-bottom: 15px;">
+        <span style="color: #1f77b4; font-weight: bold;">⏱️ ĐỒNG HỒ CHU KỲ VÒNG QUÉT:</span> 
+        <span id="countdown-timer" style="font-size: 16px; font-weight: bold; color: #ff4b4b;">30</span> giây nữa sẽ quét trạm tiếp theo...
+    </div>
+    <script>
+        let timeLeft = 30;
+        const timerElement = document.getElementById('countdown-timer');
+        const interval = setInterval(function() {
+            timeLeft--;
+            if (timeLeft <= 0) {
+                clearInterval(interval);
+                timerElement.innerText = "0";
+            } else {
+                timerElement.innerText = timeLeft;
+            }
+        }, 1000);
+    </script>
+    """
+    components.html(countdown_html, height=55)
+else:
+    st.info("⏸️ **Bộ đếm thời gian tự động đang dừng.** Nhấn nút Bắt đầu phía trên để kích hoạt lại chu kỳ.")
+
 
 # =====================================================================
 # BIỂU DIỄN BẢNG DỮ LIỆU LÊN APP SCREEN (TỰ ĐỘNG RESET THEO VÒNG)
@@ -278,8 +308,6 @@ for station_id in STATIONS_LIST:
     if str(station_id) != "5" and h_val > 100: h_val /= 10.0
     
     vpd_val = round(calculate_vpd(t_val, h_val), 3)
-    
-    # Đưa giá trị thanh trượt trực tiếp xuống bảng vẽ để đối chiếu khoảng chuẩn xác
     status, reason, action = evaluate_status(vpd_val, t_val, h_val, station_id, low_threshold, high_threshold)
     
     processed_chunks.append(pd.DataFrame([{
@@ -296,8 +324,3 @@ for station_id in STATIONS_LIST:
 if processed_chunks:
     final_table = pd.concat(processed_chunks, ignore_index=True)
     st.dataframe(final_table, use_container_width=True)
-
-if st.session_state.is_running:
-    st.info("⏱️ Hệ thống đang chạy ngầm ổn định. Trang web tự động cập nhật trạm mới chính xác mỗi **30 giây**.")
-else:
-    st.markdown("⏸️ **Bộ đếm thời gian tự động đang dừng.** Nhấn nút Bắt đầu phía trên để kích hoạt lại chu kỳ.")
