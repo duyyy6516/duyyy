@@ -11,10 +11,10 @@ from datetime import datetime
 # Cấu hình giao diện di động
 st.set_page_config(page_title="Hệ Thống MQTT Real-Time", page_icon="🚨", layout="centered")
 
-st.title("🚨 Hệ Thống VPD Real-Time Qua MQTT")
-st.markdown("Ứng dụng đang nghe tín hiệu trực tiếp từ cảm biến qua giao thức **MQTT 30 giây/lần**.")
+st.title("🚨 Hệ Thống VPD Tự Động Giả Lập Real-Time")
+st.markdown("Ứng dụng đang tự động cập nhật dữ liệu và phân tích **5 giây/lần** (Không cần bấm nút).")
 
-# --- CẤU HÌNH THÔNG TIN KẾT NỐI MỚI (BOT CHẠY 1 MÌNH) ---
+# --- CẤU HÌNH THÔNG TIN KẾT NỐI (BOT CHẠY 1 MÌNH) ---
 MQTT_BROKER = "broker.hivemq.com"
 MQTT_PORT = 1883
 MQTT_TOPIC = "vuon_thong_minh/duy_tran/sensors"
@@ -126,6 +126,7 @@ def process_incoming_data(df_new):
     else:
         st.session_state.mqtt_df = pd.concat([st.session_state.mqtt_df, df_new], ignore_index=True).drop_duplicates(subset=[stt_col, time_col]).tail(100)
 
+# --- CƠ CHẾ LẮNG NGHE MQTT (GIỮ LẠI ĐỂ NHẬN SONG SONG) ---
 def on_message(client, userdata, message):
     try:
         payload_str = message.payload.decode("utf-8")
@@ -146,13 +147,12 @@ def start_mqtt_client():
 
 _ = start_mqtt_client()
 
-# =====================================================================
-# CHỨC NĂNG RANDOM PHÂN PHỐI THỰC TẾ (WEIGHTED PROBABILITY)
-# =====================================================================
-st.subheader("🧪 Bộ Công Cụ Giả Lập Dữ Liệu")
 
-if st.button("🎲 Bấm để sinh dữ liệu RANDOM ngẫu nhiên (Gửi test Tele)", use_container_width=True):
-    # Cấu hình trọng số: NORMAL (85%), MAX_HUMIDITY (7%), EXTREME_HOT (5%), LOST_SIGNAL (3%)
+# =====================================================================
+# HÀM TỰ ĐỘNG GENERATE DỮ LIỆU THỰC TẾ TRÊN NỀN GIAO DIỆN
+# =====================================================================
+def auto_generate_random_data():
+    # Tỷ lệ: 85% Bình thường, 7% Quá ẩm, 5% Khô nóng, 3% Đứt dây cảm biến
     scenarios = ["NORMAL", "MAX_HUMIDITY", "EXTREME_HOT", "LOST_SIGNAL"]
     weights = [0.85, 0.07, 0.05, 0.03]
     scenario = random.choices(scenarios, weights=weights, k=1)[0]
@@ -161,19 +161,15 @@ if st.button("🎲 Bấm để sinh dữ liệu RANDOM ngẫu nhiên (Gửi test
     test_station = random.choice(["1", "2", "5"]) 
     
     if scenario == "NORMAL":
-        # Dữ liệu nhà màng thực tế ban ngày dao động ổn định
         temp = round(random.uniform(26.5, 35.5), 1)
         humi = round(random.uniform(55.0, 82.0), 1)
     elif scenario == "EXTREME_HOT":
-        # Nhà kính bị hầm đỉnh điểm ban trưa nắng gắt
         temp = round(random.uniform(40.5, 43.5), 1)
         humi = round(random.uniform(25.0, 38.0), 1)
     elif scenario == "MAX_HUMIDITY":
-        # Ban đêm sương xuống ẩm bão hòa kịch trần
         temp = round(random.uniform(19.0, 24.0), 1)
         humi = round(random.uniform(99.5, 100.0), 1)
     elif scenario == "LOST_SIGNAL":
-        # Cảm biến mất dây (Độ ẩm về lỗi 0%)
         temp = round(random.uniform(25.0, 32.0), 1)
         humi = 0.0
 
@@ -184,12 +180,7 @@ if st.button("🎲 Bấm để sinh dữ liệu RANDOM ngẫu nhiên (Gửi test
         
     df_mock = pd.DataFrame(mock_data)
     process_incoming_data(df_mock)
-    
-    # Hiển thị thông tin lên màn hình app
-    if scenario == "NORMAL":
-        st.info(f"📊 [Dữ liệu bình thường] Trạm {test_station}: {temp}°C, {humi}%")
-    else:
-        st.warning(f"🚨 [Kịch bản {scenario} xuất hiện hy hữu] Trạm {test_station}: {temp}°C, {humi}%")
+
 
 # --- BIỂU DIỄN DỮ LIỆU LÊN APP SCREEN ---
 df = st.session_state.mqtt_df.copy()
@@ -203,7 +194,7 @@ if not df.empty:
     df = df.sort_values(by=time_col, ascending=True)
     
     latest_time_log = df[time_col].iloc[-1]
-    st.markdown(f"⏱️ **Mốc dữ liệu mới nhất:** `{latest_time_log}`")
+    st.markdown(f"⏱️ **Mốc cập nhật hệ thống mới nhất:** `{latest_time_log}`")
     st.subheader("🔔 Nhật Ký Theo Dõi Cảm Biến Real-Time")
     
     processed_chunks = []
@@ -241,7 +232,11 @@ if not df.empty:
         st.dataframe(pd.concat(processed_chunks, ignore_index=True), use_container_width=True)
 
 else:
-    st.info("🔌 Hệ thống đang mở cổng sóng, chờ thiết bị bắn dữ liệu MQTT qua mạng hoặc nhấn nút Random Test phía trên...")
+    st.info("🔄 Đang khởi tạo chu kỳ nạp dữ liệu đầu tiên...")
 
-time.sleep(30)
-st.rerun()
+# =====================================================================
+# VÒNG LẶP TỰ ĐỘNG CHẠY NGẦM 5 GIÂY / LẦN
+# =====================================================================
+time.sleep(5)
+auto_generate_random_data()  # Tự động sinh dữ liệu mới vào bộ nhớ
+st.rerun()  # Vẽ lại màn hình ngay lập tức
