@@ -5,7 +5,7 @@ import paho.mqtt.client as mqtt
 import requests
 import json
 import time
-import random  # Thêm thư viện để tạo dữ liệu ngẫu nhiên
+import random  
 from datetime import datetime
 
 # Cấu hình giao diện di động
@@ -66,7 +66,7 @@ def evaluate_status(vpd, temp, humi, station_id, low_t, high_t, mid_t):
         return "⚠️ CẢNH BÁO: KHÔ NÓNG GẮT", f"Trạm {sid} vượt ngưỡng khô gắt cài đặt ({vpd} kPa).", "CHẠY RA KÉO LƯỚI LAN ĐEN CẤT NẮNG, BẬT PHUN SƯƠNG BÙ ẨM KHẨN CẤP!", "EXTREME_HOT"
         
     if humi >= 99.5 or vpd == 0:
-        return "Không khí ẩm ướt bão hòa", f"Trạm {sid} báo độ ẩm chạm trần {humi}%.", "Bật ngay quạt hút đuổi ẩm và ngừng tưới nước!", "MAX_HUMIDITY"
+        return "Không khí ẩm ướt bão hòa", f"Trạm {sid} báo độ ẩm chạm trần {humi}%.", "Bật ngay quạt hút đuổi ẩm và ngừng tưới nước ngay!", "MAX_HUMIDITY"
 
     if vpd < low_t:
         return "Nhà kính quá ẩm", f"VPD thấp hơn mốc cài đặt ({vpd} < {low_t} kPa).", "Bật quạt đối lưu, mở cửa hông để thoát bớt hơi ẩm.", "LOW_VPD"
@@ -149,48 +149,37 @@ def start_mqtt_client():
 
 _ = start_mqtt_client()
 
-
 # =====================================================================
 # CHỨC NĂNG RANDOM GIẢ LẬP DỮ LIỆU ĐỂ TEST TELEGRAM
 # =====================================================================
 st.subheader("🧪 Bộ Công Cụ Giả Lập Dữ Liệu")
 
 if st.button("🎲 Bấm để sinh dữ liệu RANDOM ngẫu nhiên (Gửi test Tele)", use_container_width=True):
-    # Các kịch bản test (Ngẫu nhiên chọn 1 trong các kịch bản để dễ kích hoạt cảnh báo)
     scenario = random.choice(["NORMAL", "EXTREME_HOT", "MAX_HUMIDITY", "LOST_SIGNAL"])
-    
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    test_station = random.choice(["1", "2", "5"]) # Giả lập trạm 1, 2 hoặc 5
+    test_station = random.choice(["1", "2", "5"]) 
     
     if scenario == "EXTREME_HOT":
-        # Tạo dữ liệu cực đoan gây lỗi khô nóng
         temp = round(random.uniform(41.0, 45.0), 1)
         humi = round(random.uniform(15.0, 35.0), 1)
     elif scenario == "MAX_HUMIDITY":
-        # Tạo dữ liệu gây lỗi bão hòa ẩm
         temp = round(random.uniform(22.0, 26.0), 1)
         humi = 100.0
     elif scenario == "LOST_SIGNAL":
-        # Tạo lỗi mất tín hiệu
         temp = round(random.uniform(25.0, 30.0), 1)
         humi = 0.0
     else:
-        # Dữ liệu vườn bình thường mát mẻ lý tưởng
         temp = round(random.uniform(27.0, 34.0), 1)
         humi = round(random.uniform(55.0, 75.0), 1)
 
-    # Đóng gói dữ liệu test tương thích cấu trúc MQTT cũ
     if test_station == "5":
         mock_data = [{"time": current_time, "station": "5", "tempKK": temp, "humiKK": humi}]
     else:
         mock_data = [{"Thời gian": current_time, "STT": test_station, "Nhiệt độ": temp, "Độ ẩm": humi}]
         
     df_mock = pd.DataFrame(mock_data)
-    
-    # Đẩy thẳng dữ liệu mock vào bộ xử lý tính toán & bắn cảnh báo về Tele
     process_incoming_data(df_mock)
     st.success(f"Đã giả lập thành công kịch bản **{scenario}** tại Trạm {test_station} ({temp}°C, {humi}%)!")
-
 
 # --- BIỂU DIỄN DỮ LIỆU LÊN APP SCREEN ---
 df = st.session_state.mqtt_df.copy()
@@ -210,7 +199,12 @@ if not df.empty:
     processed_chunks = []
     
     for station_id in df[stt_col].unique():
-        row = df[df[stt_col] == station_id].tail(1).iloc[0]
+        # LỌC AN TOÀN: Tránh sập app khi bảng rỗng
+        station_df = df[df[stt_col] == station_id]
+        if station_df.empty:
+            continue
+            
+        row = station_df.tail(1).iloc[0]
         t_col = 'tempKK' if station_id == "5" else ('Nhiệt Độ' if 'Nhiệt Độ' in df.columns else 'Nhiệt độ')
         h_col = 'humiKK' if station_id == "5" else 'Độ ẩm'
         
@@ -240,6 +234,6 @@ if not df.empty:
 else:
     st.info("🔌 Hệ thống đang mở cổng sóng, chờ thiết bị bắn dữ liệu MQTT qua mạng hoặc nhấn nút Random Test phía trên...")
 
-# Vòng lặp tự động reload giao diện
+# Vòng lặp tự động reload giao diện sau mỗi 30s
 time.sleep(30)
 st.rerun()
