@@ -1,303 +1,177 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import paho.mqtt.client as mqtt
 import requests
-import json
-import random  
-from datetime import datetime
-from streamlit_autorefresh import st_autorefresh
+import time
 
 # =====================================================================
-# CẤU HÌNH GIAO DIỆN DI ĐỘNG
+# 1. CẤU HÌNH CONFIG BOT ZALO (ĐÃ ĐỒNG BỘ THEO TÀI KHOẢN DUY)
 # =====================================================================
-st.set_page_config(page_title="Hệ Thống Quét Điều Khiển", page_icon="🚨", layout="centered")
+# Dán chính xác chuỗi Access Token siêu dài lấy từ hình ảnh API Explorer vào đây:
+ZALO_ACCESS_TOKEN = "JhN_GvCLKoL7j_j0a11K9Ks--q674Gjt4_2aLSyXJs4QXO0y4nrT2RqAAwscLVrbh0RxqKumS6dOQvS..."
+# Dán chuỗi Refresh Token ở hàng thứ hai trong ảnh dán vào đây:
+ZALO_REFRESH_TOKEN = "I2Dl7bBJ-tsr8MiTKTRyVRyeQnn6XgG--79c67Rbe1MPHpKt9kkdEBLYQnSxFmAaNiS5GVgqHQN7W..."
+# ID tài khoản Zalo cá nhân Duy bạn vừa lấy được từ lệnh v2.0/me
+ZALO_USER_ID = "6669070447643778989"
 
-st.title("🚨 Giám Sát Real-Time Quét Vòng 5 Trạm")
-st.markdown("Mô phỏng: **Mỗi trạm gửi cách nhau 150s, các trạm lệch pha nhau đúng 30s**.")
-
-# --- CẤU HÌNH THÔNG TIN KẾT NỐI (BOT CHẠY 1 MÌNH) ---
-MQTT_BROKER = "broker.hivemq.com"
-MQTT_PORT = 1883
-MQTT_TOPIC = "vuon_thong_minh/duy_tran/sensors"
-TELEGRAM_TOKEN = "8924137204:AAGcMCbi6xfxb5LN3KaB1t69YFXc0MjadWk"   
-TELEGRAM_CHAT_ID = "7290661009"                                      
-
-# --- KHỞI TẠO STATE ---
-if "mqtt_df" not in st.session_state:
-    st.session_state.mqtt_df = pd.DataFrame()
-
-# Trạng thái hoạt động của bộ giả lập (Mặc định là chạy tự động)
-if "is_running" not in st.session_state:
-    st.session_state.is_running = True
-
-# Biến lưu vết trạm nào sẽ gửi ở giây thứ mấy
-if "current_station_index" not in st.session_state:
-    st.session_state.current_station_index = 0
-
-# Biến dùng để kiểm tra nhịp tránh lặp dữ liệu khi tương tác giao diện
-if "last_processed_idx" not in st.session_state:
-    st.session_state.last_processed_idx = -1
-
-# Danh sách 5 trạm trong hệ thống vườn
-STATIONS_LIST = ["1", "2", "3", "4", "5"]
-
-# =====================================================================
-# BỘ TỰ ĐỘNG LÀM MỚI (XUNG NHỊP CHUẨN 30 GIÂY)
-# =====================================================================
-if st.session_state.is_running:
-    st_autorefresh(interval=30000, key="iot_refresh")
-
-# =====================================================================
-# BỘ ĐIỀU KHIỂN BẮT ĐẦU / DỪNG LẠI (PLAY / PAUSE BUTTONS)
-# =====================================================================
-st.subheader("🎮 Bộ Điều Khiển Hệ Thống")
-col_start, col_stop = st.columns(2)
-
-with col_start:
-    if st.button("▶️ BẮT ĐẦU (Chạy tự động)", use_container_width=True, type="primary"):
-        st.session_state.is_running = True
-        st.session_state.last_processed_idx = -1 
-        st.rerun()
-
-with col_stop:
-    if st.button("⏸️ DỪNG LẠI (Tạm dừng quét)", use_container_width=True):
-        st.session_state.is_running = False
-        st.rerun()
-
-if st.session_state.is_running:
-    st.success("🤖 Hệ thống đang: **CHẠY TỰ ĐỘNG (Xung nhịp 30s chuẩn)**")
-else:
-    st.warning("⏸️ Hệ thống đang: **TẠM DỪNG QUÉT** (Đang giữ nguyên thông số hiển thị và CHẶN tin nhắn)")
-
-# =====================================================================
-# CẤU HÌNH THANH TRƯỢT NGƯỠNG ĐỘNG
-# =====================================================================
-st.subheader("⚙️ Cài Đặt Ngưỡng VPD")
-low_threshold = st.slider("1. Ngưỡng VPD Thấp (Quá ẩm):", min_value=0.1, max_value=1.0, value=0.45, step=0.05, format="%.2f kPa")
-high_threshold = st.slider("2. Ngưỡng VPD Cao (Khô nóng):", min_value=1.0, max_value=3.0, value=1.70, step=0.05, format="%.2f kPa")
-
-st.session_state.low_threshold = low_threshold
-st.session_state.high_threshold = high_threshold
-
-# =====================================================================
-# LOGIC TOÁN HỌC VÀ ĐÁNH GIÁ TRẠNG THÁI (ĐÃ SỬA THEO LOGIC KHOẢNG ĐÚNG)
-# =====================================================================
-
-def calculate_vpd(temp, humi):
-    vp_sat = 0.61078 * np.exp((17.27 * temp) / (temp + 237.3))
-    return float(np.clip(vp_sat * (1 - (humi / 100)), 0, None))
-
-def send_telegram_auto(message):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    try: 
-        requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"}, timeout=2)
-    except: 
-        pass
-
-def evaluate_status(vpd, temp, humi, station_id, low_t, high_t):
-    sid = str(station_id)
+def send_zalo_bot_official(message):
+    """
+    Hàm gọi OpenAPI Zalo gửi tin nhắn trực tiếp về số điện thoại Duy.
+    Đã tích hợp cơ chế tự động gia hạn token khi hết hạn (Sau 1 tiếng).
+    """
+    global ZALO_ACCESS_TOKEN, ZALO_REFRESH_TOKEN
     
-    # 1. Các trạng thái lỗi thiết bị hoặc bão hòa ẩm (Ưu tiên số 1)
-    if humi == 0:
-        return "🔌 Mất tín hiệu thiết bị", f"Trạm {sid} báo độ ẩm bằng 0%.", "Kiểm tra lại dây nguồn, giắc nối đầu dò."
+    url = "https://openapi.zalo.me/v2.0/me/message"
+    headers = {
+        "access_token": ZALO_ACCESS_TOKEN,
+        "Content-Type": "application/json"
+    }
     
-    if vpd > high_t and temp > 40.0 and humi < 40.0:
-        return "🔥 BÁO ĐỘNG: KHÔ NÓNG GẮT", f"Trạm {sid} vượt ngưỡng khô gắt cài đặt ({vpd} kPa).", "CHẠY RA KÉO LƯỚI LAN ĐEN CẤT NẮNG, BẬT PHUN SƯƠNG BÙ ẨM KHẨN CẤP!"
-        
-    if humi >= 99.5 or vpd == 0:
-        return "⚠️ THÔNG BÁO: BÃO HÒA ẨM", f"Trạm {sid} báo độ ẩm chạm trần {humi}%.", "Bật ngay quạt hút đuổi ẩm và ngừng tưới nước ngay!"
-
-    # 2. Logic phân 3 vùng lớn theo ý bạn
-    if vpd < low_t:
-        return "Nhà kính quá ẩm", f"VPD thấp hơn mốc cài đặt ({vpd} < {low_t} kPa).", "Bật quạt đối lưu, mở cửa hông để thoát bớt hơi ẩm."
-        
-    elif low_t <= vpd <= high_t:
-        # Nằm trọn vẹn ở giữa ngưỡng Thấp và ngưỡng Cao -> Môi trường hoàn hảo
-        return "Môi trường hoàn hảo lý tưởng", f"VPD đạt điểm vàng quang hợp ({vpd} kPa).", "Thời điểm vàng để cây sinh trưởng tốt. Giữ nguyên chế độ vườn."
-        
-    else: # Trường hợp này CHẮC CHẮN vpd > high_t
-        if humi < 40.0:
-            return "Môi trường khô hanh", f"VPD vượt ngưỡng cao ({vpd} kPa) do thiếu ẩm.", "Bật hệ thống phun sương giữa vườn để bù lại độ ẩm."
-        else:
-            return "Nhiệt độ tăng cao", f"Nhiệt độ nhà màng hầm nóng ({temp}°C) làm đẩy VPD lên {vpd} kPa.", "Tăng thời gian tưới nhỏ giọt dưới gốc cấp nước cho rễ."
-
-def process_incoming_data(df_new):
-    if df_new.empty:
-        return
-
-    if "is_running" in st.session_state and not st.session_state.is_running:
-        return
-
-    low_t = st.session_state.low_threshold
-    high_t = st.session_state.high_threshold
-
-    time_col = 'Thời gian' if 'Thời gian' in df_new.columns else 'time'
-    stt_col = 'STT' if 'STT' in df_new.columns else 'station'
-
-    for _, row in df_new.iterrows():
-        station_id = str(row[stt_col])
-        t_col = 'tempKK' if station_id == "5" else ('Nhiệt Độ' if 'Nhiệt Độ' in df_new.columns else 'Nhiệt độ')
-        h_col = 'humiKK' if station_id == "5" else 'Độ ẩm'
-        
-        if t_col in row and h_col in row:
-            t_val = pd.to_numeric(row[t_col])
-            h_val = pd.to_numeric(row[h_col])
-            if station_id != "5" and t_val > 100: t_val /= 10.0
-            if station_id != "5" and h_val > 100: h_val /= 10.0
-            
-            vpd_val = round(calculate_vpd(t_val, h_val), 3)
-            time_log = str(row[time_col])
-            
-            status, reason, action = evaluate_status(vpd_val, t_val, h_val, station_id, low_t, high_t)
-            
-            msg = (
-                f"📡 *[MÔ PHỎNG REALTIME] TRẠM {station_id}/5*\n"
-                f"⏱ Cập nhật: `{time_log}`\n"
-                f"🌡 Nhiệt độ: {t_val}°C | 💧 Độ ẩm: {h_val}%\n"
-                f"💨 Chỉ số VPD: *{vpd_val} kPa*\n"
-                f"📢 Trạng thái: *{status}*\n"
-                f"🛠 Hướng xử lý: _{action}_"
-            )
-            send_telegram_auto(msg)
-
-    df_normalized = df_new.copy()
-    if 'time' in df_normalized.columns: df_normalized.rename(columns={'time': 'Thời gian'}, inplace=True)
-    if 'station' in df_normalized.columns: df_normalized.rename(columns={'station': 'STT'}, inplace=True)
-    if 'tempKK' in df_normalized.columns: df_normalized.rename(columns={'tempKK': 'Nhiệt độ'}, inplace=True)
-    if 'humiKK' in df_normalized.columns: df_normalized.rename(columns={'humiKK': 'Độ ẩm'}, inplace=True)
-    if 'Nhiệt Độ' in df_normalized.columns: df_normalized.rename(columns={'Nhiệt Độ': 'Nhiệt độ'}, inplace=True)
-
-    if st.session_state.mqtt_df.empty:
-        st.session_state.mqtt_df = df_normalized
-    else:
-        st.session_state.mqtt_df = pd.concat([st.session_state.mqtt_df, df_normalized], ignore_index=True).drop_duplicates(subset=['STT', 'Thời gian']).tail(200)
-
-# --- CƠ CHẾ LẮNG NGHE MQTT ---
-def on_message(client, userdata, message):
+    # Định dạng tin nhắn gửi qua tài khoản nhà phát triển (Dạng text thuần sạch đẹp)
+    payload = {
+        "recipient": {
+            "user_id": ZALO_USER_ID
+        },
+        "message": {
+            "text": message.replace("*", "").replace("`", "").replace("_", "")
+        }
+    }
+    
     try:
-        payload_str = message.payload.decode("utf-8")
-        new_data = json.loads(payload_str)
-        df_new = pd.DataFrame(new_data)
-        process_incoming_data(df_new)
-    except:
-        pass
-
-@st.cache_resource
-def start_mqtt_client():
-    mqtt_client = mqtt.Client()
-    mqtt_client.on_message = on_message
-    mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
-    mqtt_client.subscribe(MQTT_TOPIC)
-    mqtt_client.loop_start()
-    return mqtt_client
-
-_ = start_mqtt_client()
+        response = requests.post(url, json=payload, headers=headers, timeout=5)
+        result = response.json()
+        
+        # Gửi thành công
+        if result.get("error") == 0 or "message_id" in result:
+            st.success("🔔 Đã bắn thông báo trạng thái trạm về Zalo!")
+            
+        # Lỗi hết hạn Token -> Tiến hành tự động gia hạn bằng Refresh Token
+        elif result.get("error") in [-216, -203] or "expired" in result.get("message", "").lower():
+            refresh_url = "https://oauth.zalo.chat/v2/access_token"
+            refresh_headers = {
+                "secret_key": "477V5VQFUCDRS8lGlI7R",
+                "Content-Type": "application/x-www-form-urlencoded"
+            }
+            refresh_data = {
+                "app_id": "509634047731079806",
+                "grant_type": "refresh_token",
+                "refresh_token": ZALO_REFRESH_TOKEN
+            }
+            
+            refresh_res = requests.post(refresh_url, data=refresh_data, headers=refresh_headers, timeout=5).json()
+            
+            if "access_token" in refresh_res:
+                ZALO_ACCESS_TOKEN = refresh_res["access_token"]
+                ZALO_REFRESH_TOKEN = refresh_res["refresh_token"]
+                
+                # Thử gửi lại tin nhắn bằng token mới tinh vừa đổi
+                headers["access_token"] = ZALO_ACCESS_TOKEN
+                requests.post(url, json=payload, headers=headers, timeout=5)
+                st.success("🔄 Đã tự động gia hạn Token Zalo và gửi lại tin nhắn thành công!")
+            else:
+                st.error(f"❌ Gia hạn Token Zalo thất bại: {refresh_res.get('error_description')}")
+        else:
+            st.error(f"❌ Zalo trả về mã lỗi: {result.get('message')} (Mã: {result.get('error')})")
+            
+    except Exception as e:
+        st.error(f"❌ Lỗi đường truyền kết nối Zalo: {e}")
 
 # =====================================================================
-# XỬ LÝ ĐIỀU PHỐI XUNG NHỊP CHUẨN THEO TICK AUTOREFRESH
+# 2. LOGIC TOÁN HỌC VÀ ĐÁNH GIÁ TRẠNG THÁI VPD
 # =====================================================================
-st.subheader("⏱️ Tiến Độ Điều Phối Xung Nhịp")
+def calculate_vpd(temp, humi):
+    """
+    Công thức toán học tính áp suất hơi bão hòa và độ hụt áp suất hơi (VPD)
+    """
+    # Áp suất hơi bão hòa VPsat (kPa) dựa trên nhiệt độ
+    vp_sat = 0.61078 * np.exp((17.27 * temp) / (temp + 237.3))
+    # Độ hụt áp suất hơi VPD (kPa) dựa trên độ ẩm thực tế
+    vpd = vp_sat * (1 - (humi / 100))
+    return float(np.clip(vpd, 0, None))
 
-idx = st.session_state.current_station_index
-active_station = STATIONS_LIST[idx]
-next_station = STATIONS_LIST[(idx + 1) % len(STATIONS_LIST)]
-
-col1, col2 = st.columns(2)
-with col1:
-    st.metric(label="🟢 Trạm vừa xử lý dữ liệu", value=f"Trạm {active_station}")
-with col2:
-    st.metric(label="⏳ Trạm xếp hàng kế tiếp", value=f"Trạm {next_station}")
-
-if st.session_state.is_running and st.session_state.last_processed_idx != idx:
-    current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    if active_station == "1":
-        st.session_state.mqtt_df = pd.DataFrame()
-
-    scenarios = ["NORMAL", "MAX_HUMIDITY", "EXTREME_HOT", "LOST_SIGNAL"]
-    weights = [0.85, 0.07, 0.05, 0.03]
-    scenario = random.choices(scenarios, weights=weights, k=1)[0]
-    
-    if scenario == "NORMAL":
-        temp = round(random.uniform(26.5, 35.5), 1)
-        humi = round(random.uniform(55.0, 82.0), 1)
-    elif scenario == "EXTREME_HOT":
-        temp = round(random.uniform(40.5, 43.5), 1)
-        humi = round(random.uniform(25.0, 38.0), 1)
-    elif scenario == "MAX_HUMIDITY":
-        temp = round(random.uniform(19.0, 24.0), 1)
-        humi = round(random.uniform(99.5, 100.0), 1)
-    elif scenario == "LOST_SIGNAL":
-        temp = round(random.uniform(25.0, 32.0), 1)
-        humi = 0.0
-
-    if active_station == "5":
-        mock_packet = [{"time": current_time_str, "station": "5", "tempKK": temp, "humiKK": humi}]
+def evaluate_station_status(temp, humi, vpd):
+    """
+    Phân tích trạng thái sức khỏe của cây trồng dựa vào chỉ số VPD
+    """
+    if pd.isna(temp) or pd.isna(humi):
+        return "⚠️ Mất tín hiệu cảm biến", "inverse"
+    elif vpd < 0.4:
+        return "❌ BÁO ĐỘNG: Nguy cơ nấm bệnh (VPD quá thấp)", "danger"
+    elif 0.4 <= vpd < 0.8:
+        return "🟡 Cảnh báo nhẹ: Hơi ẩm", "warning"
+    elif 0.8 <= vpd <= 1.2:
+        return "✅ Môi trường lý tưởng cho cây phát triển", "success"
+    elif 1.2 < vpd <= 1.6:
+        return "🟡 Cảnh báo nhẹ: Hơi khô", "warning"
     else:
-        mock_packet = [{"Thời gian": current_time_str, "STT": active_station, "Nhiệt độ": temp, "Độ ẩm": humi}]
-        
-    df_single_step = pd.DataFrame(mock_packet)
-    process_incoming_data(df_single_step)
-    
-    st.session_state.last_processed_idx = idx
-    st.session_state.current_station_index = (idx + 1) % len(STATIONS_LIST)
+        return "❌ BÁO ĐỘNG: Cây bị stress nhiệt (VPD quá cao)", "danger"
 
 # =====================================================================
-# BIỂU DIỄN BẢNG DỮ LIỆU LÊN APP SCREEN (TỰ ĐỘNG RESET THEO VÒNG)
+# 3. GIAO DIỆN STREAMLIT VÀ VÒNG QUÉT DỮ LIỆU TỰ ĐỘNG
 # =====================================================================
-df = st.session_state.mqtt_df.copy()
+st.set_page_config(page_title="Hệ Thống Giám Sát VPD Vườn - Zalo", layout="wide")
+st.title("🌿 Hệ Thống Giám Sát Chỉ Số VPD Thông Minh - 5 Trạm Vườn")
+st.write("Dữ liệu tự động cập nhật liên tục. Trạng thái bất thường sẽ tự động báo về Zalo.")
 
-st.subheader("🔔 Bảng Trạng Thái 5 Trạm Chu Kỳ Hiện Tại")
-processed_chunks = []
+# Cấu hình tự động refresh ứng dụng (Ví dụ cài đặt: 30 giây làm mới 1 lần)
+# st_autorefresh(interval=30000, key="datamonitor")
 
-for station_id in STATIONS_LIST:
-    station_df = pd.DataFrame()
-    if not df.empty:
-        station_df = df[df['STT'].astype(str) == str(station_id)]
+# Hàm mô phỏng lấy dữ liệu từ phần cứng/API IoT trạm vườn gửi về
+def fetch_iot_garden_data():
+    # Giả lập dữ liệu ngẫu nhiên cho 5 trạm vườn để kiểm thử
+    np.random.seed(int(time.time()))
+    data = {
+        "Trạm Vườn": ["Trạm 1 (Khu A)", "Trạm 2 (Khu B)", "Trạm 3 (Khu C)", "Trạm 4 (Khu D)", "Trạm 5 (Khu E)"],
+        "Nhiệt độ (°C)": np.round(np.random.uniform(22.0, 35.0, 5), 1),
+        "Độ ẩm (%)": np.round(np.random.uniform(40.0, 95.0, 5), 1)
+    }
+    return pd.DataFrame(data)
+
+# Thực thi lấy dữ liệu hiện tại
+df_garden = fetch_iot_garden_data()
+
+# Tính toán các cột chỉ số VPD và Trạng thái tự động dựa trên dữ liệu thật
+df_garden["VPD (kPa)"] = df_garden.apply(lambda row: round(calculate_vpd(row["Nhiệt độ (°C)"], row["Độ ẩm (%)"]), 2), axis=1)
+
+# Thiết lập cấu trúc giao diện hiển thị 5 trạm dạng lưới (Cards) trực quan
+cols = st.columns(5)
+zalo_alert_messages = []
+
+for idx, row in df_garden.iterrows():
+    status_text, style = evaluate_station_status(row["Nhiệt độ (°C)"], row["Độ ẩm (%)"], row["VPD (kPa)"])
     
-    if station_df.empty:
-        processed_chunks.append(pd.DataFrame([{
-            "Thời gian": "Đang chờ lượt...",
-            "Số Trạm": f"Trạm {station_id}",
-            "Nhiệt độ (°C)": None,
-            "Độ ẩm (%)": None,
-            "VPD (kPa)": None,
-            "Trạng Thái Vườn": "💤 Đang chờ quét vòng",
-            "Lý Do Từ Cảm Biến": "-",
-            "Hành Động Khắc Phục": "-"
-        }]))
-        continue
+    with cols[idx]:
+        st.markdown(f"### {row['Trạm Vườn']}")
+        st.metric(label="🌡️ Nhiệt độ", value=f"{row['Nhiệt độ (°C)']} °C")
+        st.metric(label="💧 Độ ẩm", value=f"{row['Độ ẩm (%)']} %")
+        st.metric(label="📊 Chỉ số VPD", value=f"{row['VPD (kPa)']} kPa")
         
-    row = station_df.sort_values(by='Thời gian', ascending=True).tail(1).iloc[0]
-    
-    t_val = pd.to_numeric(row['Nhiệt độ'])
-    h_val = pd.to_numeric(row['Độ ẩm'])
-    
-    if str(station_id) != "5" and t_val > 100: t_val /= 10.0
-    if str(station_id) != "5" and h_val > 100: h_val /= 10.0
-    
-    vpd_val = round(calculate_vpd(t_val, h_val), 3)
-    
-    # Đưa giá trị thanh trượt trực tiếp xuống bảng vẽ để đối chiếu khoảng chuẩn xác
-    status, reason, action = evaluate_status(vpd_val, t_val, h_val, station_id, low_threshold, high_threshold)
-    
-    processed_chunks.append(pd.DataFrame([{
-        "Thời gian": row['Thời gian'],
-        "Số Trạm": f"Trạm {station_id}",
-        "Nhiệt độ (°C)": t_val,
-        "Độ ẩm (%)": h_val,
-        "VPD (kPa)": vpd_val,
-        "Trạng Thái Vườn": status,
-        "Lý Do Từ Cảm Biến": reason,
-        "Hành Động Khắc Phục": action
-    }]))
-        
-if processed_chunks:
-    final_table = pd.concat(processed_chunks, ignore_index=True)
-    st.dataframe(final_table, use_container_width=True)
+        # Hiển thị màu sắc trạng thái tương ứng trên giao diện Streamlit
+        if style == "success":
+            st.success(status_text)
+        elif style == "warning":
+            st.warning(status_text)
+        elif style == "danger":
+            st.error(status_text)
+            # Nếu phát hiện trạng thái BÁO ĐỘNG (Nguy hiểm), gộp nội dung gửi tin về Zalo
+            zalo_alert_messages.append(f"- {row['Trạm Vườn']}: T={row['Nhiệt độ (°C)']}°C, H={row['Độ ẩm (%)']}%, VPD={row['VPD (kPa)']}kPa -> {status_text}")
+        else:
+            st.info(status_text)
 
-if st.session_state.is_running:
-    st.info("⏱️ Hệ thống đang chạy ngầm ổn định. Trang web tự động cập nhật trạm mới chính xác mỗi **30 giây**.")
+st.markdown("---")
+st.markdown("### 📋 Bảng Dữ Liệu Tổng Hợp 5 Trạm Vườn")
+st.dataframe(df_garden, use_container_width=True)
+
+# =====================================================================
+# 4. KÍCH HOẠT GỬI TIN BÁO QUA ZALO KHI PHÁT HIỆN BẤT THƯỜNG
+# =====================================================================
+if zalo_alert_messages:
+    # Gom tất cả các trạm bị lỗi báo động vào một tin nhắn tổng hợp để tránh spam tin nhắn
+    final_zalo_msg = "⚠️ HỆ THỐNG CẢNH BÁO VƯỜN DUY TRẦN:\n" + "\n".join(zalo_alert_messages)
+    
+    # Kiểm tra tránh gửi lặp tin nhắn giống nhau liên tục bằng session_state
+    if "last_alert_content" not in st.session_state or st.session_state.last_alert_content != final_zalo_msg:
+        send_zalo_bot_official(final_zalo_msg)
+        st.session_state.last_alert_content = final_zalo_msg
 else:
-    st.markdown("⏸️ **Bộ đếm thời gian tự động đang dừng.** Nhấn nút Bắt đầu phía trên để kích hoạt lại chu kỳ.")
+    st.info("✅ Hiện tại tất cả 5 trạm vườn đều đang hoạt động trong ngưỡng an toàn ổn định.")
