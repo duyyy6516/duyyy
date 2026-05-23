@@ -182,11 +182,12 @@ with st.sidebar:
     st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
     st.markdown("<h4 style='color: #0088cc;'>🤖 KẾT NỐI TELEGRAM BOT</h4>", unsafe_allow_html=True)
     
-    # Ghim sẵn thông tin cấu hình người dùng cung cấp vào làm giá trị mặc định (default value)
-    tele_token = st.text_input("Telegram Bot Token:", value="8924137204:AAGcMCbi6xfxb5LN3KaB1t69YFXc0MjadWk", type="password")
-    tele_chat_id = st.text_input("Telegram Chat ID:", value="8924137204")
+    # Đã cập nhật Token mới của bạn ở đây
+    tele_token = st.text_input("Telegram Bot Token:", value="8917951413:AAE6LKUEfYEYiQrFWGoKsQn0tumZc_XbcHg", type="password")
+    # Ô nhập Chat ID cá nhân chính chủ
+    tele_chat_id = st.text_input("Telegram Chat ID chính chủ của bạn:", value="", placeholder="Dán ID lấy từ @userinfobot vào đây")
     
-    st.info("💡 Token và Chat ID đã được cấu hình mặc định. Bạn có thể bấm Start để hệ thống bắt đầu gửi tin nhắn.")
+    st.warning("⚠️ Chú ý: Hãy điền Chat ID lấy từ @userinfobot vào ô trống phía trên để nhận được tin nhắn báo động!")
 
 # --- HÀM TẠO LẬP NGÀY MỚI KHI BẤM CHẠY TIẾP ---
 def setup_next_day():
@@ -241,7 +242,7 @@ def trigger_new_data(vpd_min, vpd_max, token, chat_id):
         history_of_latest_day = [r for r in st.session_state.history if r["Ngày"] == latest_day_in_db]
         trend, _ = predict_vpd_trend_v3(history_of_latest_day, current_sim_datetime.hour)
         
-        # Tạo tin nhắn đồng bộ chuẩn cấu trúc 3 dòng gọn gàng
+        # Tạo tin nhắn đồng bộ chuẩn cấu trúc 3 dòng gọn gàng về điện thoại
         telegram_msg = (
             f"🌿 *HỆ THỐNG VPD ĐÀ LẠT REALTIME*\n"
             f"⏰ Thời gian: {current_date_str} - {current_sim_datetime.strftime('%H:%M')}\n"
@@ -332,7 +333,6 @@ def vpd_controlled_monitor():
             sol_text = get_quick_solution(vpd_result, vpd_min, vpd_max, current_sim_dt.hour)
             trend_msg, msg_type = predict_vpd_trend_v3(history_of_latest_day, current_sim_dt.hour)
             
-            # Hiển thị trên màn hình chính Dashboard theo đúng 3 dòng logic tuần tự
             st.markdown(f"**1️⃣ Trạng thái hệ thống:** Chỉ số hiện tại đạt <span style='font-size: 16px; color: {text_color}; font-weight: bold;'>{vpd_result:.2f} kPa</span> —— Phân loại: **{status_lbl}**", unsafe_allow_html=True)
             st.markdown(f"**2️⃣ Hướng giải pháp đề xuất:** *{sol_text}*")
             st.markdown(f"**3️⃣ Xu hướng vận hành tiếp theo:** {trend_msg}")
