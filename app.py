@@ -60,8 +60,7 @@ def trigger_new_data():
     }
     st.session_state.history.insert(0, new_record)
 
-# --- KHU VỰC ĐIỀU KHIỂN (BẮT ĐẦU / TẠM DỪNG) ---
-st.write("""### 🎛️ Bảng Điều Khiển""")
+# --- KHU VỰC CÁC NÚT BẤM (BẮT ĐẦU / TẠM DỪNG) ---
 col_btn1, col_btn2 = st.columns(2)
 
 with col_btn1:
