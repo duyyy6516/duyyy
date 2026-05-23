@@ -186,25 +186,27 @@ def vpd_controlled_monitor():
             tab_temp, tab_rh, tab_vpd = st.tabs(["🌡️ Biểu đồ Nhiệt độ", "💧 Biểu đồ Độ ẩm", "🎯 Biểu đồ chỉ số VPD"])
             
             with tab_temp:
-                # Dùng Altair tự động tối ưu trục hoành và căn chữ nằm ngang
+                # THAY ĐỔI QUAN TRỌNG: Đổi thành 'STT:O' (Ordinal) để ép trục hoành chỉ hiện số nguyên rời rạc
                 chart_temp = alt.Chart(df_chart).mark_line(color="#FF4B4B", point=True).encode(
-                    x=alt.X('STT:Q', axis=alt.Axis(title="Lần đo (STT)", labelAngle=0)),
+                    x=alt.X('STT:O', axis=alt.Axis(title="Lần đo (STT)", labelAngle=0)),
                     y=alt.Y('Nhiệt độ (°C):Q', scale=alt.Scale(zero=False)),
                     tooltip=['STT', 'Thời gian', 'Nhiệt độ (°C)']
                 ).properties(height=300)
                 st.altair_chart(chart_temp, use_container_width=True)
                 
             with tab_rh:
+                # Thay 'STT:O' cho biểu đồ độ ẩm
                 chart_rh = alt.Chart(df_chart).mark_line(color="#0068C9", point=True).encode(
-                    x=alt.X('STT:Q', axis=alt.Axis(title="Lần đo (STT)", labelAngle=0)),
+                    x=alt.X('STT:O', axis=alt.Axis(title="Lần đo (STT)", labelAngle=0)),
                     y=alt.Y('Độ ẩm (%):Q', scale=alt.Scale(zero=False)),
                     tooltip=['STT', 'Thời gian', 'Độ ẩm (%)']
                 ).properties(height=300)
                 st.altair_chart(chart_rh, use_container_width=True)
                 
             with tab_vpd:
+                # Thay 'STT:O' cho biểu đồ VPD
                 chart_vpd = alt.Chart(df_chart).mark_line(color="#2E7D32", point=True).encode(
-                    x=alt.X('STT:Q', axis=alt.Axis(title="Lần đo (STT)", labelAngle=0)),
+                    x=alt.X('STT:O', axis=alt.Axis(title="Lần đo (STT)", labelAngle=0)),
                     y=alt.Y('VPD (kPa):Q', scale=alt.Scale(zero=False)),
                     tooltip=['STT', 'Thời gian', 'VPD (kPa)']
                 ).properties(height=300)
