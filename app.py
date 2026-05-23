@@ -4,48 +4,61 @@ import math
 from datetime import datetime
 
 # Cấu hình trang web Streamlit
-st.set_page_config(page_title="Tính toán VPD Tự Động", page_icon="🌿", layout="centered")
+st.set_page_config(page_title="Tính toán VPD có Đếm Ngược", page_icon="🌿", layout="centered")
 
 st.title("Hệ Thống Giám Sát & Tính Toán VPD Tự Động 🌿")
-st.write("Hệ thống sẽ **tự động cập nhật thông số mới sau mỗi 30 giây**.")
 
 # --- CÔNG THỨC TÍNH VPD ---
 def calculate_vpd(temp, rh):
-    """
-    VP_sat = 0.61078 * e^((17.27 * T) / (T + 237.3))
-    VPD = VP_sat * (1 - RH/100)
-    """
     vp_sat = 0.61078 * math.exp((17.27 * temp) / (temp + 237.3))
     vpd = vp_sat * (1.0 - (rh / 100.0))
     return vpd
 
-# --- ĐOẠN CODE TỰ ĐỘNG CHẠY LẠI MỖI 30 GIÂY ---
-# Thêm decorator @st.fragment với tham số run_every=30 (đơn vị là giây)
-@st.fragment(run_every=30)
-def vpd_monitor_fragment():
-    # 1. Random thông số mới mỗi khi fragment này được kích hoạt
-    temp = round(random.uniform(15.0, 38.0), 1)
-    rh = round(random.uniform(30.0, 95.0), 1)
+# --- KHỞI TẠO BIẾN TRONG SESSION STATE ---
+if 'temp' not in st.session_state:
+    st.session_state.temp = 31.5
+if 'rh' not in st.session_state:
+    st.session_state.rh = 56.5
+if 'countdown' not in st.session_state:
+    st.session_state.countdown = 30  # Bắt đầu đếm từ 30 giây
+if 'last_updated' not in st.session_state:
+    st.session_state.last_updated = datetime.now().strftime("%H:%M:%S")
+
+# --- ĐOẠN CODE CHẠY LẠI MỖI 1 GIÂY ĐỂ GIẢM SỐ ĐẾM NGƯỢC ---
+@st.fragment(run_every=1)
+def vpd_monitor_with_countdown():
+    # Mỗi 1 giây trừ đi 1
+    st.session_state.countdown -= 1
     
-    # 2. Tính toán VPD
-    vpd_result = calculate_vpd(temp, rh)
+    # Nếu đếm ngược về hết số (dưới 0) thì random số mới và reset về 30
+    if st.session_state.countdown < 0:
+        st.session_state.temp = round(random.uniform(15.0, 38.0), 1)
+        st.session_state.rh = round(random.uniform(30.0, 95.0), 1)
+        st.session_state.countdown = 30 
+        st.session_state.last_updated = datetime.now().strftime("%H:%M:%S")
     
-    # 3. Hiển thị thời gian cập nhật gần nhất để bạn dễ theo dõi
-    now = datetime.now().strftime("%H:%M:%S")
-    st.caption(f"🔄 Cập nhật lần cuối lúc: **{now}** (Sẽ tự động đổi sau 30 giây...)")
+    # HIỂN THỊ SỐ ĐẾM NGƯỢC CHẠY LIÊN TỤC Ở ĐÂY
+    st.write(f"### ⏳ Tự động đổi số sau: **{st.session_state.countdown}** giây")
+    st.progress(st.session_state.countdown / 30) # Thanh tiến trình chạy lùi theo
     
-    # 4. Hiển thị Nhiệt độ & Độ ẩm
+    st.caption(f"🔄 Cập nhật dữ liệu mới nhất lúc: {st.session_state.last_updated}")
+    st.write("---")
+
+    # HIỂN THỊ THÔNG SỐ
     col1, col2 = st.columns(2)
     with col1:
-        st.metric(label="🌡️ Nhiệt độ", value=f"{temp} °C")
+        st.metric(label="🌡️ Nhiệt độ", value=f"{st.session_state.temp} °C")
     with col2:
-        st.metric(label="💧 Độ ẩm", value=f"{rh} %")
+        st.metric(label="💧 Độ ẩm", value=f"{st.session_state.rh} %")
         
+    # TÍNH TOÁN VPD
+    vpd_result = calculate_vpd(st.session_state.temp, st.session_state.rh)
+    
     st.write("---")
     st.subheader("Chỉ số VPD hiện tại:")
     st.metric(label="Áp suất hơi thâm hụt (Vapor Pressure Deficit)", value=f"{vpd_result:.2f} kPa")
     
-    # 5. Đánh giá môi trường
+    # ĐÁNH GIÁ MÔI TRƯỜNG
     st.write("**Đánh giá môi trường:**")
     if vpd_result < 0.4:
         st.warning("⚠️ **VPD quá thấp (Môi trường quá ẩm):** Cây khó thoát nước, dễ bị nấm bệnh tấn công.")
@@ -58,9 +71,5 @@ def vpd_monitor_fragment():
     else:
         st.error("🚨 **VPD quá cao (Môi trường quá khô):** Cây mất nước quá nhanh, buộc phải đóng lỗ khí khổng, ngừng lớn.")
 
-    # Thêm một nút bấm thủ công nếu người dùng muốn đổi số ngay lập tức mà không đợi 30s
-    if st.button("🎲 Random Ngay Lập Tức"):
-        st.rerun()
-
-# Gọi hàm fragment để chạy trên giao diện
-vpd_monitor_fragment()
+# Chạy hàm
+vpd_monitor_with_countdown()
