@@ -10,7 +10,7 @@ import requests
 # ⚙️ CẤU HÌNH BẢO MẬT TELEGRAM ĐÃ GHIM CỐ ĐỊNH (ẨN KHỎI GIAO DIỆN)
 # =================================================================
 TELE_TOKEN = "8917951413:AAE6LKUEfYEYiQrFWGoKsQn0tumZc_XbcHg"
-TELE_CHAT_ID = "8924137204"
+TELE_CHAT_ID = "7290661009"
 # =================================================================
 
 # Cấu hình trang web Streamlit
@@ -84,7 +84,7 @@ def get_quick_solution(vpd_val, vpd_min, vpd_max, hour):
 
 # --- HÀM PHÂN TÍCH THỜI GIAN THỰC THEO BUỔI ---
 def analyze_day_by_blocks_rt(history_list, vpd_min, vpd_max, target_date_str):
-    day_data = [r for r in history_list if r["Nancy"] == target_date_str] if "Nancy" in pd.DataFrame(history_list).columns else [r for r in history_list if r["Ngày"] == target_date_str]
+    day_data = [r for r in history_list if r["Ngày"] == target_date_str]
     
     blocks = {
         "🌅 Sáng (07h-11h)": [],
@@ -187,7 +187,7 @@ with st.sidebar:
     vpd_min, vpd_max = vpd_range
 
     st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
-    st.success("🤖 Hệ thống Telegram Bot: Đã được kích hoạt ngầm bằng Token cá nhân của bạn thành công!")
+    st.success("🤖 Hệ thống Telegram Bot: Đã đồng bộ cố định với Chat ID cá nhân thành công!")
 
 # --- HÀM TẠO LẬP NGÀY MỚI KHI BẤM CHẠY TIẾP ---
 def setup_next_day():
@@ -407,42 +407,4 @@ def vpd_controlled_monitor():
                     x=alt.X('Hiển thị Giờ:O', axis=alt.Axis(title="Mốc thời gian", labelAngle=0))
                 )
                 line_t = base.mark_line(color='#FF4B4B', strokeDash=[3,3], point=alt.OverlayMarkDef(color='#FF4B4B')).encode(
-                    y=alt.Y('Nhiệt độ (°C):Q', axis=alt.Axis(title="Nhiệt độ (°C) / Độ ẩm (%)", titleColor='#0068C9')),
-                    tooltip=['Hiển thị Giờ', 'Nhiệt độ (°C)']
-                )
-                line_r = base.mark_line(color='#0068C9', point=alt.OverlayMarkDef(color='#0068C9')).encode(
-                    y=alt.Y('Độ ẩm (%):Q'),
-                    tooltip=['Hiển thị Giờ', 'Độ ẩm (%)']
-                )
-                weather_layer = alt.layer(line_t, line_r)
-                line_v = base.mark_line(color='#2E7D32', size=3, point=alt.OverlayMarkDef(color='#2E7D32')).encode(
-                    y=alt.Y('VPD (kPa):Q', axis=alt.Axis(title="Áp suất VPD (kPa)", titleColor='#2E7D32'), scale=alt.Scale(domain=[0, 3.0])),
-                    tooltip=['Hiển thị Giờ', 'VPD (kPa)', 'Trạng thái']
-                )
-                combined_chart = alt.layer(weather_layer, line_v).properties(height=260).resolve_scale(
-                    y='independent'
-                ).interactive()
-                st.altair_chart(combined_chart, use_container_width=True)
-
-        # --- CONTAINER 7: LỊCH SỬ BẢNG ĐÃ ĐƯỢC LỌC ---
-        st.write("")
-        with st.container(border=True):
-            st.markdown(f"<p style='color: gray; font-size: 14px; margin-bottom: 10px;'>📋 BẢNG LỊCH SỬ GHI NHẬN - LỌC: {selected_view_day}</p>", unsafe_allow_html=True)
-            df_display = df_filtered.iloc[::-1].copy() 
-            df_display["Thời gian mô phỏng"] = df_display["Hiển thị Giờ"]
-            df_display = df_display.drop(columns=["Hiển thị Giờ"])
-            st.dataframe(df_display, use_container_width=True, hide_index=True)
-
-        # NÚT XÓA SẠCH DATABASE HỆ THỐNG
-        if st.button("""🗑️ Khởi động lại hệ thống (Xóa toàn bộ dữ liệu lịch sử)""", type="secondary"):
-            st.session_state.stt_counter = 0
-            st.session_state.temp = 0.0
-            st.session_state.rh = 0.0
-            st.session_state.history = []
-            st.session_state.simulated_time = "2026-05-24 07:00:00"
-            st.session_state.is_completed = False
-            st.session_state.is_running = False
-            st.rerun()
-
-# Khởi chạy Dashboard
-vpd_controlled_monitor()
+                    y=alt.Y('Nhiệt
