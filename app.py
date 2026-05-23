@@ -46,38 +46,49 @@ def get_weather_by_time(sim_time):
         
     return temp, rh
 
-# --- HÀM DỰ BÁO XU HƯỚNG SỚM (PREDICTIVE TREND ANALYSIS) ---
-def predict_vpd_trend(history, vpd_min, vpd_max):
-    if len(history) < 3:
-        return "🔄 Đang thu thập thêm dữ liệu để phân tích xu hướng...", "info"
+# --- HÀM DỰ BÁO XU HƯỚNG NÂNG CẤP (CHỐNG NHIỄU RĂNG CƯA) ---
+def predict_vpd_trend_v2(history, vpd_min, vpd_max):
+    # Cần tối thiểu 4 mốc dữ liệu để phân tích xu hướng mượt mà
+    if len(history) < 4:
+        return "🔄 Hệ thống đang tích lũy dữ liệu nhà kính (Cần đo tối thiểu 4 lần) để lập biểu đồ dự báo xu hướng...", "info"
     
-    # Lấy 3 điểm dữ liệu gần nhất (lưu ý history chèn phần tử mới vào đầu index 0)
-    current_vpd = history[0]["VPD (kPa)"]
-    prev_vpd_1 = history[1]["VPD (kPa)"]
-    prev_vpd_2 = history[2]["VPD (kPa)"]
+    # Lấy giá trị VPD của 4 lần gần nhất (index 0 là mới nhất)
+    v0 = history[0]["VPD (kPa)"]
+    v1 = history[1]["VPD (kPa)"]
+    v2 = history[2]["VPD (kPa)"]
+    v3 = history[3]["VPD (kPa)"]
     
-    # Tính toán tốc độ thay đổi trung bình (độ dốc trend)
-    diff_1 = current_vpd - prev_vpd_1
-    diff_2 = prev_vpd_1 - prev_vpd_2
-    avg_diff = (diff_1 + diff_2) / 2
+    # Tính đường trung bình động để làm mịn (Moving Average)
+    ma_hien_tai = (v0 + v1) / 2
+    ma_truoc_do = (v2 + v3) / 2
     
-    # Dự đoán giá trị VPD ở lượt tiếp theo (sau 30 phút mô phỏng)
-    predicted_vpd = current_vpd + avg_diff
+    # Xác định hướng đi tổng thể của xu hướng (Tăng hay Giảm)
+    is_trending_up = ma_hien_tai > ma_truoc_do
+    is_trending_down = ma_hien_tai < ma_truoc_do
     
-    # Chỉ cảnh báo sớm khi HIỆN TẠI đang ở vùng AN TOÀN nhưng lượt TỚI có nguy cơ vượt ngưỡng
-    if vpd_min <= current_vpd <= vpd_max:
-        if predicted_vpd < vpd_min:
-            return f"🔮 DỰ BÁO SỚM: Chỉ số đang giảm nhanh (Độ dốc: {avg_diff:.2f}). Môi trường có nguy cơ SẮP QUÁ ẨM trong 30-60 phút tới!", "warning"
-        elif predicted_vpd > vpd_max:
-            return f"🔮 DỰ BÁO SỚM: Chỉ số đang tăng mạnh (Độ dốc: +{avg_diff:.2f}). Môi trường có nguy cơ SẮP QUÁ KHÔ trong 30-60 phút tới!", "error"
+    # Thiết lập "Vùng đệm tiệm cận cảnh báo" (Buffer Zone = 0.15 kPa sát hành lang nguy hiểm)
+    buffer = 0.15
+    
+    # LÝ TRÌNH DỰ BÁO LOGIC:
+    if vpd_min <= v0 <= vpd_max:
+        # Trường hợp 1: Sắp quá ẩm (VPD đang rất thấp, sát vpd_min VÀ xu hướng chung đang lao dốc đi xuống)
+        if (v0 - vpd_min <= buffer) and is_trending_down:
+            return f"🔮 DỰ BÁO SỚM: Chỉ số VPD ({v0:.2f} kPa) đang giảm dần và tiến sát biên dưới. Môi trường có xu hướng SẮP QUÁ ẨM trong mốc tiếp theo!", "warning"
+        
+        # Trường hợp 2: Sắp quá khô (VPD đang rất cao, sát vpd_max VÀ xu hướng chung đang tăng tiến đi lên)
+        elif (vpd_max - v0 <= buffer) and is_trending_up:
+            return f"🔮 DỰ BÁO SỚM: Chỉ số VPD ({v0:.2f} kPa) đang tăng nhanh và tiến sát biên trên. Môi trường có xu hướng SẮP QUÁ KHÔ trong mốc tiếp theo!", "error"
+        
+        # Trường hợp 3: An toàn, nằm vững ở giữa khoảng tối ưu
         else:
-            return "🟢 Xu hướng: Các chỉ số đang phát triển ổn định, an toàn trong ngưỡng sinh trưởng.", "success"
+            hướng = "📈 xu hướng tăng nhẹ" if is_trending_up else "📉 xu hướng giảm nhẹ"
+            return f"🟢 Giao động ổn định: Chỉ số đang đi theo {hướng} nhưng vẫn nằm an toàn trong vùng sinh trưởng lý tưởng.", "success"
     else:
-        # Nếu hiện tại đã quá ẩm hoặc quá khô rồi thì trả về trạng thái khẩn cấp hiện tại
-        if current_vpd < vpd_min:
-            return "🚨 TRẠNG THÁI HIỆN TẠI: Nhà kính đang ở trong vùng QUÁ ẨM!", "warning"
+        # Nếu hiện tại đã vượt hẳn ra ngoài biên rồi
+        if v0 < vpd_min:
+            return f"🚨 BÁO ĐỘNG: Nhà kính đã rơi hẳn vào vùng QUÁ ẨM ({v0:.2f} < {vpd_min} kPa)!", "warning"
         else:
-            return "🚨 TRẠNG THÁI HIỆN TẠI: Nhà kính đang ở trong vùng QUÁ KHÔ!", "error"
+            return f"🚨 BÁO ĐỘNG: Nhà kính đã rơi hẳn vào vùng QUÁ KHÔ ({v0:.2f} > {vpd_max} kPa)!", "error"
 
 # --- KHỞI TẠO BIẾN TRONG SESSION STATE ---
 if 'temp' not in st.session_state:
@@ -85,7 +96,7 @@ if 'temp' not in st.session_state:
 if 'rh' not in st.session_state:
     st.session_state.rh = 0.0
 if 'countdown' not in st.session_state:
-    st.session_state.countdown = 15  # 15 giây
+    st.session_state.countdown = 15 
 if 'is_running' not in st.session_state:
     st.session_state.is_running = False
 if 'history' not in st.session_state:
@@ -221,11 +232,10 @@ def vpd_controlled_monitor():
         st.metric(label="Áp suất hơi thâm hụt (Vapor Pressure Deficit)", value=f"{vpd_result:.2f} kPa" if st.session_state.stt_counter > 0 else "-- kPa")
         
         if st.session_state.stt_counter > 0:
-            # Gọi hàm phân tích xu hướng dự báo sớm
-            trend_msg, msg_type = predict_vpd_trend(st.session_state.history, vpd_min, vpd_max)
+            # GỌI THUẬT TOÁN DỰ BÁO V2 MỚI
+            trend_msg, msg_type = predict_vpd_trend_v2(st.session_state.history, vpd_min, vpd_max)
             
-            # Hiển thị thông báo dự báo bằng các hộp thông báo màu sắc trực quan của Streamlit
-            st.markdown("**🔮 Trung tâm Dự báo Xu hướng Nhà kính:**")
+            st.markdown("**🔮 Trung tâm Dự báo Xu hướng Nhà kính (Đã chống nhiễu):**")
             if msg_type == "warning":
                 st.warning(trend_msg)
             elif msg_type == "error":
@@ -236,11 +246,11 @@ def vpd_controlled_monitor():
                 st.info(trend_msg)
                 
             # Phần hiển thị hành động/giải pháp thực tế
-            st.markdown(f"**🔍 Đánh giá chi tiết cho [{plant_option}]:**")
+            st.markdown(f"**🔍 Đánh giá chi tiết hiện tại cho [{plant_option}]:**")
             if vpd_result < vpd_min:
                 st.write(" Môi trường hiện tại đang quá ẩm. **Giải pháp:** Bật thông gió, máy hút ẩm.")
             elif vpd_min <= vpd_result <= vpd_max:
-                st.write(" Môi trường hiện tại hoàn hảo! **Giải pháp:** Tiếp tục duy trì.")
+                st.write(" Môi trường hiện tại hoàn hảo! **Giải pháp:** Tiếp tục duy trì hành trình.")
             else:
                 st.write(" Môi trường hiện tại đang quá khô. **Giải pháp:** Kích hoạt hệ thống phun sương mịn.")
         else:
