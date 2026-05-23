@@ -5,7 +5,7 @@ from datetime import datetime
 import pandas as pd
 
 # Cấu hình trang web Streamlit
-st.set_page_config(page_title="Giám sát VPD & Lịch sử", page_icon="🌿", layout="centered")
+st.set_page_config(page_title="Giám sát VPD & Lịch sử STT", page_icon="🌿", layout="centered")
 
 st.title("Hệ Thống Giám Sát & Tính Toán VPD Tự Động 🌿")
 
@@ -15,21 +15,25 @@ def calculate_vpd(temp, rh):
     vpd = vp_sat * (1.0 - (rh / 100.0))
     return vpd
 
-# --- KHỞI TẠO BIẾN TRONG SESSION STATE (Chỉ chạy 1 lần khi mở trang) ---
+# --- KHỞI TẠO BIẾN TRONG SESSION STATE ---
 if 'temp' not in st.session_state:
     st.session_state.temp = 31.5
 if 'rh' not in st.session_state:
     st.session_state.rh = 56.5
 if 'countdown' not in st.session_state:
-    st.session_state.countdown = 30  # Bắt đầu đếm ngược từ 30 giây
+    st.session_state.countdown = 30  
 if 'last_updated' not in st.session_state:
     st.session_state.last_updated = datetime.now().strftime("%H:%M:%S")
 
-# Khởi tạo danh sách lưu lịch sử nếu chưa có
+# Khởi tạo biến đếm số thứ tự (STT), bắt đầu từ 1
+if 'stt_counter' not in st.session_state:
+    st.session_state.stt_counter = 1
+
+# Khởi tạo danh sách lưu lịch sử
 if 'history' not in st.session_state:
-    # Thêm dòng dữ liệu đầu tiên vào lịch sử
     first_vpd = calculate_vpd(st.session_state.temp, st.session_state.rh)
     st.session_state.history = [{
+        "STT": st.session_state.stt_counter, # Lần đầu tiên mang STT = 1
         "Thời gian": st.session_state.last_updated,
         "Nhiệt độ (°C)": st.session_state.temp,
         "Độ ẩm (%)": st.session_state.rh,
@@ -40,29 +44,31 @@ if 'history' not in st.session_state:
 def trigger_new_data():
     st.session_state.temp = round(random.uniform(15.0, 38.0), 1)
     st.session_state.rh = round(random.uniform(30.0, 95.0), 1)
-    st.session_state.countdown = 30 # Reset về 30 giây
+    st.session_state.countdown = 30 
     st.session_state.last_updated = datetime.now().strftime("%H:%M:%S")
     
-    # Tính VPD mới để lưu vào lịch sử
+    # Tăng số thứ tự lên 1 cho lần đo tiếp theo
+    st.session_state.stt_counter += 1
+    
     new_vpd = calculate_vpd(st.session_state.temp, st.session_state.rh)
     
-    # Tạo bản ghi mới
     new_record = {
+        "STT": st.session_state.stt_counter, # Gán STT mới tăng
         "Thời gian": st.session_state.last_updated,
         "Nhiệt độ (°C)": st.session_state.temp,
         "Độ ẩm (%)": st.session_state.rh,
         "VPD (kPa)": round(new_vpd, 2)
     }
-    # Chèn bản ghi mới lên đầu danh sách lịch sử để xem dữ liệu mới nhất trước
+    # Đẩy lên đầu bảng
     st.session_state.history.insert(0, new_record)
 
 # --- ĐOẠN CODE CHẠY LẠI MỖI 1 GIÂY ---
 @st.fragment(run_every=1)
-def vpd_monitor_with_history():
-    # 1. Trừ thời gian đếm ngược đi 1 giây
+def vpd_monitor_with_history_stt():
+    # 1. Trừ thời gian đếm ngược
     st.session_state.countdown -= 1
     
-    # 2. Nếu đếm ngược về hết số (< 0) thì kích hoạt lấy dữ liệu mới
+    # 2. Hết 30s kích hoạt số mới
     if st.session_state.countdown < 0:
         trigger_new_data()
     
@@ -70,7 +76,7 @@ def vpd_monitor_with_history():
     st.write(f"### ⏳ Tự động đổi số sau: **{st.session_state.countdown}** giây")
     st.progress(st.session_state.countdown / 30)
     
-    st.caption(f"🔄 Cập nhật dữ liệu mới nhất lúc: {st.session_state.last_updated}")
+    st.caption(f"🔄 Cập nhật dữ liệu mới nhất lúc: {st.session_state.last_updated} (Lần đo thứ: {st.session_state.stt_counter})")
     st.write("---")
 
     # 4. HIỂN THỊ THÔNG SỐ HIỆN TẠI
@@ -80,7 +86,6 @@ def vpd_monitor_with_history():
     with col2:
         st.metric(label="💧 Độ ẩm hiện tại", value=f"{st.session_state.rh} %")
         
-    # Tính toán VPD hiện tại
     vpd_result = calculate_vpd(st.session_state.temp, st.session_state.rh)
     
     st.write("---")
@@ -99,24 +104,25 @@ def vpd_monitor_with_history():
     else:
         st.error("🚨 **VPD quá cao (Môi trường quá khô):** Cây mất nước quá nhanh.")
 
-    # Nút bấm đổi số khẩn cấp thủ công
+    # Nút bấm đổi số khẩn cấp
     if st.button("🎲 Random Ngay Lập Tức", type="secondary"):
         trigger_new_data()
         st.rerun()
 
-    # --- 5. HIỂN THỊ LỊCH SỬ DỮ LIỆU ---
+    # --- 5. HIỂN THỊ LỊCH SỬ DỮ LIỆU CÓ STT ---
     st.write("---")
     st.subheader("📋 Lịch Sử Dữ Liệu Đã Ghi Nhận")
     
-    # Chuyển đổi List danh sách lịch sử thành DataFrame của Pandas để hiển thị dạng bảng
     df_history = pd.DataFrame(st.session_state.history)
     
-    # Hiển thị bảng dữ liệu (Bản ghi mới nhất nằm ở trên cùng)
+    # Hiển thị bảng dữ liệu ra màn hình
     st.dataframe(df_history, use_container_width=True, hide_index=True)
     
-    # Nút bấm xóa lịch sử nếu muốn làm sạch bảng
+    # Nút bấm xóa lịch sử (reset về 1)
     if st.button("🗑️ Xóa Lịch Sử"):
+        st.session_state.stt_counter = 1
         st.session_state.history = [{
+            "STT": st.session_state.stt_counter,
             "Thời gian": st.session_state.last_updated,
             "Nhiệt độ (°C)": st.session_state.temp,
             "Độ ẩm (%)": st.session_state.rh,
@@ -125,4 +131,4 @@ def vpd_monitor_with_history():
         st.rerun()
 
 # Chạy toàn bộ hệ thống
-vpd_monitor_with_history()
+vpd_monitor_with_history_stt()
