@@ -137,11 +137,27 @@ if 'temp' not in st.session_state: st.session_state.temp = 0.0
 if 'rh' not in st.session_state: st.session_state.rh = 0.0
 if 'countdown' not in st.session_state: st.session_state.countdown = 15 
 if 'is_running' not in st.session_state: st.session_state.is_running = False
+if 'is_completed' not in st.session_state: st.session_state.is_completed = False 
 if 'history' not in st.session_state: st.session_state.history = []
 if 'stt_counter' not in st.session_state: st.session_state.stt_counter = 0 
 
 if 'simulated_time' not in st.session_state:
     st.session_state.simulated_time = "2026-05-24 07:00:00"
+
+# --- HÀM TẠO LẬP NGÀY MỚI KHI BẤM CHẠY TIẾP ---
+def setup_next_day():
+    current_dt = datetime.strptime(st.session_state.simulated_time, "%Y-%m-%d %H:%M:%S")
+    # Nếu mốc hiện tại đang ở 00:00 (vừa kết thúc ngày cũ), dời mốc lên thành 07:00 sáng cùng ngày đó để bắt đầu ngày mới
+    if current_dt.hour == 0 and current_dt.minute == 0:
+        next_day_dt = current_dt + timedelta(hours=7)
+    else:
+        # Trường hợp đề phòng: cộng thêm 1 ngày
+        next_day_dt = current_dt + timedelta(days=1)
+        next_day_dt = next_day_dt.replace(hour=7, minute=0, second=0)
+        
+    st.session_state.simulated_time = next_day_dt.strftime("%Y-%m-%d %H:%M:%S")
+    st.session_state.is_completed = False
+    st.session_state.countdown = 15
 
 # --- HÀM CẬP NHẬT DỮ LIỆU MỚI ---
 def trigger_new_data(vpd_min, vpd_max):
@@ -169,10 +185,13 @@ def trigger_new_data(vpd_min, vpd_max):
     
     next_sim_datetime = current_sim_datetime + timedelta(minutes=30)
     
+    # ĐIỀU KIỆN DỪNG: Kiểm tra nếu mốc tiếp theo chạm tới đúng 24h đêm (00:00 hôm sau)
     if next_sim_datetime.hour == 0 and next_sim_datetime.minute == 0:
-        next_sim_datetime = next_sim_datetime + timedelta(hours=7)
-        
-    st.session_state.simulated_time = next_sim_datetime.strftime("%Y-%m-%d %H:%M:%S")
+        st.session_state.is_running = False     # Dừng tự động phát số
+        st.session_state.is_completed = True   # Khóa trạng thái chờ kích hoạt ngày tiếp theo
+        st.session_state.simulated_time = next_sim_datetime.strftime("%Y-%m-%d %H:%M:%S")
+    else:
+        st.session_state.simulated_time = next_sim_datetime.strftime("%Y-%m-%d %H:%M:%S")
 
 # --- CONTAINER 1: CẤU HÌNH THEO CÂY TRỒNG ĐÀ LẠT ---
 with st.container(border=True):
@@ -197,9 +216,13 @@ st.write("")
 with st.container(border=True):
     col_btn1, col_btn2 = st.columns(2)
     with col_btn1:
+        # LOGIC: Nếu ngày cũ vừa hoàn thành, ấn nút này sẽ thiết lập và chuyển thẳng sang ngày tiếp theo
         if st.button("""▶️ Bắt đầu chạy tự động""", type="primary", use_container_width=True, disabled=st.session_state.is_running):
+            if st.session_state.is_completed:
+                setup_next_day()
             st.session_state.is_running = True
-            if st.session_state.stt_counter == 0: trigger_new_data(vpd_min, vpd_max)
+            if st.session_state.stt_counter == 0: 
+                trigger_new_data(vpd_min, vpd_max)
             st.rerun()
     with col_btn2:
         if st.button("""⏸️ Tạm dừng hệ thống""", type="secondary", use_container_width=True, disabled=not st.session_state.is_running):
@@ -212,61 +235,72 @@ run_interval = 1 if st.session_state.is_running else 999999
 def vpd_controlled_monitor():
     if st.session_state.is_running:
         st.session_state.countdown -= 1
-        if st.session_state.countdown < 0: trigger_new_data(vpd_min, vpd_max)
+        if st.session_state.countdown < 0: 
+            trigger_new_data(vpd_min, vpd_max)
+            st.rerun()
             
     if st.session_state.is_running:
         st.write(f"⏳ Tự động đổi số sau: **{st.session_state.countdown}** giây")
         st.progress(st.session_state.countdown / 15)
+    elif st.session_state.is_completed:
+        st.success("🏁 Đã chạy xong 1 ngày trọn vẹn! Hãy nhấn nút 'Bắt đầu' lần nữa để hệ thống TỰ ĐỘNG CHUYỂN SANG NGÀY TIẾP THEO.")
     else:
         st.info("💡 Hệ thống đang tạm dừng.")
 
     current_sim_dt = datetime.strptime(st.session_state.simulated_time, "%Y-%m-%d %H:%M:%S")
     current_date_display = current_sim_dt.strftime("Ngày %d/%m")
     
-    # --- CONTAINER 3: THÔNG SỐ HIỆN TẠI ---
+    # --- CONTAINER 3: THÔNG SỐ REALTIME HÌNH THỨC ---
     st.write("")
     with st.container(border=True):
-        st.markdown(f"### ⏰ Thời gian nhà kính: <span style='color:#2E7D32;'>{current_date_display} - {current_sim_dt.strftime('%H:%M')}</span>", unsafe_allow_html=True)
+        st.markdown(f"### ⏰ Thời gian nhà kính hiện tại: <span style='color:#2E7D32;'>{current_date_display} - {current_sim_dt.strftime('%H:%M')}</span>", unsafe_allow_html=True)
         col1, col2 = st.columns(2)
         with col1: st.metric(label="🌡️ Nhiệt độ", value=f"{st.session_state.temp} °C" if st.session_state.stt_counter > 0 else "-- °C")
         with col2: st.metric(label="💧 Độ ẩm", value=f"{st.session_state.rh} %" if st.session_state.stt_counter > 0 else "-- %")
 
-    # --- CONTAINER 4: KẾT QUẢ VPD & BỘ NÃO DỰ BÁO ---
+    # --- CONTAINER 4: KẾT QUẢ VPD & DỰ BÁO XU HƯỚNG ---
     vpd_result = calculate_vpd(st.session_state.temp, st.session_state.rh)
     st.write("")
     with st.container(border=True):
         st.metric(label="Áp suất hơi thâm hụt (VPD)", value=f"{vpd_result:.2f} kPa" if st.session_state.stt_counter > 0 else "-- kPa")
-        if st.session_state.stt_counter > 0:
+        if st.session_state.stt_counter > 0 and not st.session_state.is_completed:
             trend_msg, msg_type = predict_vpd_trend_v2(st.session_state.history, vpd_min, vpd_max)
             if msg_type == "warning": st.warning(trend_msg)
             elif msg_type == "error": st.error(trend_msg)
             elif msg_type == "success": st.success(trend_msg)
             else: st.info(trend_msg)
+        elif st.session_state.is_completed:
+            st.info("📊 Ngày cũ đã đóng sổ. Chọn ngày cần xem ở Bộ lọc lưu trữ bên dưới để tra cứu.")
 
-    # --- CONTAINER 5: BÁO CÁO PHÂN TÍCH THỜI GIAN THỰC ---
+    # --- BỘ LỌC LƯU TRỮ TRUNG TÂM (CHỌN NGÀY NÀO CHỈ HIỆN SỐ LIỆU NGÀY ĐÓ) ---
     if len(st.session_state.history) > 0:
         st.write("")
         with st.container(border=True):
-            st.markdown("<p style='color: #2E7D32; font-size: 16px; font-weight: bold; margin-bottom: 2px;'>📊 TRẠM PHÂN TÍCH THEO BUỔI & ĐỀ XUẤT ĐIỀU HÀNH THỜI GIAN THỰC</p>", unsafe_allow_html=True)
-            
+            st.markdown("<p style='color: #2E7D32; font-size: 16px; font-weight: bold; margin-bottom: 2px;'>🗂️ BỘ LỌC LƯU TRỮ LỊCH SỬ NHÀ KÍNH</p>", unsafe_allow_html=True)
+            # Lấy danh sách tất cả các ngày đã chạy, xếp ngày mới nhất lên đầu
             unique_days = sorted(list(set([r["Ngày"] for r in st.session_state.history])), reverse=True)
-            selected_report_day = st.selectbox("Chọn ngày để xem báo cáo:", unique_days)
+            selected_view_day = st.selectbox("Chọn ngày lịch sử cần kiểm tra (Biểu đồ và Bảng sẽ lọc theo ngày này):", unique_days)
             
-            rt_report_df = analyze_day_by_blocks_rt(st.session_state.history, vpd_min, vpd_max, selected_report_day)
+            # Tiến hành lọc dữ liệu của ngày được chọn
+            df_all = pd.DataFrame(st.session_state.history)
+            df_filtered = df_all[df_all["Ngày"] == selected_view_day].iloc[::-1].copy()
+
+        # --- CONTAINER 5: BÁO CÁO PHÂN TÍCH THEO BUỔI CỦA NGÀY ĐƯỢC CHỌN ---
+        st.write("")
+        with st.container(border=True):
+            st.markdown(f"<p style='color: #2E7D32; font-size: 15px; font-weight: bold; margin-bottom: 2px;'>📊 TRẠM PHÂN TÍCH THEO BUỔI & ĐỀ XUẤT ĐIỀU HÀNH ({selected_view_day})</p>", unsafe_allow_html=True)
+            rt_report_df = analyze_day_by_blocks_rt(st.session_state.history, vpd_min, vpd_max, selected_view_day)
             st.dataframe(rt_report_df, use_container_width=True, hide_index=True)
 
-    # --- CONTAINER 6: BIỂU ĐỒ XU HƯỚNG ĐỒNG BỘ CHU KỲ TRONG NGÀY ---
-    if len(st.session_state.history) > 0:
+        # --- CONTAINER 6: HỆ THỐNG BIỂU ĐỒ ĐÃ ĐƯỢC LỌC THEO NGÀY CHỌN ---
         st.write("")
         with st.container(border=True):
-            st.markdown("<p style='color: gray; font-size: 14px; margin-bottom: 2px;'>📈 BIỂU ĐỒ XU HƯỚNG ĐỒNG BỘ CHU KỲ (Xoay chuột để Zoom | Giữ chuột kéo để Di chuyển)</p>", unsafe_allow_html=True)
-            
-            df_chart = pd.DataFrame(st.session_state.history).iloc[::-1].copy()
+            st.markdown(f"<p style='color: gray; font-size: 14px; margin-bottom: 2px;'>📈 BIỂU ĐỒ XU HƯỚNG THEO CHU KỲ - LỌC: {selected_view_day}</p>", unsafe_allow_html=True)
             
             tab_temp, tab_rh, tab_vpd, tab_combined = st.tabs(["🌡️ Biểu đồ Nhiệt độ", "💧 Biểu đồ Độ ẩm", "🎯 Biểu đồ chỉ số VPD", "📊 Biểu đồ Tổ hợp 3 chỉ số"])
             
             with tab_temp:
-                chart_temp = alt.Chart(df_chart).mark_line(color="#FF4B4B", point=True).encode(
+                chart_temp = alt.Chart(df_filtered).mark_line(color="#FF4B4B", point=True).encode(
                     x=alt.X('Hiển thị Giờ:O', axis=alt.Axis(title="Mốc thời gian", labelAngle=0)), 
                     y=alt.Y('Nhiệt độ (°C):Q', scale=alt.Scale(zero=False), axis=alt.Axis(title="Nhiệt độ (°C)")),
                     tooltip=['Ngày', 'Hiển thị Giờ', 'Nhiệt độ (°C)']
@@ -274,7 +308,7 @@ def vpd_controlled_monitor():
                 st.altair_chart(chart_temp, use_container_width=True)
                 
             with tab_rh:
-                chart_rh = alt.Chart(df_chart).mark_line(color="#0068C9", point=True).encode(
+                chart_rh = alt.Chart(df_filtered).mark_line(color="#0068C9", point=True).encode(
                     x=alt.X('Hiển thị Giờ:O', axis=alt.Axis(title="Mốc thời gian", labelAngle=0)),
                     y=alt.Y('Độ ẩm (%):Q', scale=alt.Scale(zero=False), axis=alt.Axis(title="Độ ẩm (%)")),
                     tooltip=['Ngày', 'Hiển thị Giờ', 'Độ ẩm (%)']
@@ -284,7 +318,6 @@ def vpd_controlled_monitor():
             with tab_vpd:
                 st.caption(f"ℹ️ Vùng màu an toàn theo [{plant_option}]: 🟦 Quá ẩm (< {vpd_min} kPa) | 🟥 Quá khô (> {vpd_max} kPa)")
                 
-                # --- GIẢI PHÁP ĐÓNG BĂNG VÙNG NỀN (Tách biệt hoàn toàn khỏi tương tác zoom của chuột) ---
                 bg_data = pd.DataFrame([{'start_blue': 0.0, 'end_blue': vpd_min, 'start_red': vpd_max, 'end_red': 3.0}])
                 
                 rect_blue = alt.Chart(bg_data).mark_rect(color='#0068C9', opacity=0.12).encode(
@@ -297,22 +330,19 @@ def vpd_controlled_monitor():
                     y2=alt.Y2('end_red:Q')
                 )
                 
-                # Tạo lớp đường vẽ VPD động độc lập và CHỈ bật tương tác .interactive() riêng cho nó
-                line_vpd = alt.Chart(df_chart).mark_line(color="#2E7D32", point=True).encode(
+                line_vpd = alt.Chart(df_filtered).mark_line(color="#2E7D32", point=True).encode(
                     x=alt.X('Hiển thị Giờ:O', axis=alt.Axis(title="Mốc thời gian", labelAngle=0)),
                     y=alt.Y('VPD (kPa):Q', scale=alt.Scale(domain=[0, 3.0]), axis=alt.Axis(title="Chỉ số VPD (kPa)", grid=True)),
                     tooltip=['Ngày', 'Hiển thị Giờ', 'VPD (kPa)', 'Trạng thái']
                 ).interactive() 
                 
-                # Gom các lớp lại bằng toán tử cộng mà không dùng resolve_scale(y='independent') nữa 
-                # để triệt tiêu vĩnh viễn trục số ảo phụ bên trái.
                 chart_vpd = (rect_blue + rect_red + line_vpd).properties(height=260)
                 st.altair_chart(chart_vpd, use_container_width=True)
 
             with tab_combined:
                 st.caption("🔴 Đường Đỏ: Nhiệt độ (°C) | 🔵 Đường Xanh dương: Độ ẩm (%) [Trục Trái] --- 🟢 Đường Xanh lá: VPD (kPa) [Trục Phải]")
                 
-                base = alt.Chart(df_chart).encode(
+                base = alt.Chart(df_filtered).encode(
                     x=alt.X('Hiển thị Giờ:O', axis=alt.Axis(title="Mốc thời gian", labelAngle=0))
                 )
                 
@@ -338,24 +368,24 @@ def vpd_controlled_monitor():
                 ).interactive()
                 st.altair_chart(combined_chart, use_container_width=True)
 
-    # --- CONTAINER 7: LỊCH SỬ DỮ LIỆU BẢNG ---
-    st.write("")
-    with st.container(border=True):
-        st.markdown("<p style='color: gray; font-size: 14px; margin-bottom: 10px;'>📋 LỊCH SỬ DỮ LIỆU ĐÃ GHI NHẬN</p>", unsafe_allow_html=True)
-        if len(st.session_state.history) > 0:
-            df_display = pd.DataFrame(st.session_state.history).copy()
+        # --- CONTAINER 7: LỊCH SỬ BẢNG ĐÃ ĐƯỢC LỌC ---
+        st.write("")
+        with st.container(border=True):
+            st.markdown(f"<p style='color: gray; font-size: 14px; margin-bottom: 10px;'>📋 BẢNG LỊCH SỬ GHI NHẬN - LỌC: {selected_view_day}</p>", unsafe_allow_html=True)
+            df_display = df_filtered.iloc[::-1].copy() # Đảo dòng mới nhất lên đầu bảng cho dễ xem
             df_display["Thời gian mô phỏng"] = df_display["Hiển thị Giờ"]
             df_display = df_display.drop(columns=["Hiển thị Giờ"])
             st.dataframe(df_display, use_container_width=True, hide_index=True)
-        else:
-            st.write("Chưa có dữ liệu lịch sử.")
-        
-        if st.button("""🗑️ Xóa lịch sử""", type="secondary"):
+
+        # NÚT XÓA SẠCH TOÀN BỘ DATABASE HỆ THỐNG
+        if st.button("""🗑️ Khởi động lại hệ thống (Xóa toàn bộ các ngày)""", type="secondary"):
             st.session_state.stt_counter = 0
             st.session_state.temp = 0.0
             st.session_state.rh = 0.0
             st.session_state.history = []
             st.session_state.simulated_time = "2026-05-24 07:00:00"
+            st.session_state.is_completed = False
+            st.session_state.is_running = False
             st.rerun()
 
 # Khởi chạy Dashboard
