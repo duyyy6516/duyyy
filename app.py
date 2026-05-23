@@ -52,7 +52,7 @@ if 'temp' not in st.session_state:
 if 'rh' not in st.session_state:
     st.session_state.rh = 0.0
 if 'countdown' not in st.session_state:
-    st.session_state.countdown = 15  # ĐÃ ĐỔI: Khởi tạo đếm ngược từ 15 giây
+    st.session_state.countdown = 15  # 15 giây
 if 'is_running' not in st.session_state:
     st.session_state.is_running = False
 if 'history' not in st.session_state:
@@ -71,7 +71,7 @@ def trigger_new_data(vpd_min, vpd_max):
     
     # Lấy dữ liệu thời tiết dựa theo giờ mô phỏng hiện tại
     st.session_state.temp, st.session_state.rh = get_weather_by_time(current_sim_datetime)
-    st.session_state.countdown = 15 # ĐÃ ĐỔI: Reset bộ đếm về lại 15 giây
+    st.session_state.countdown = 15 # Reset bộ đếm về lại 15 giây
     st.session_state.stt_counter += 1
     
     # Tính toán VPD
@@ -117,7 +117,7 @@ with st.container(border=True):
         default_range = (0.8, 1.2)
     elif plant_option == "🌼 Hoa cúc / Hoa đồng tiền":
         default_range = (0.7, 1.1)
-    elif plant_option == "🍅 Cà chua bi / 🫑 Ớt chuông":
+    elif plant_option == "🍅 Cà chua bi / 𫑑 Ớt chuông":
         default_range = (0.8, 1.4)
     else:
         default_range = (0.8, 1.2)
@@ -167,7 +167,7 @@ def vpd_controlled_monitor():
             
     if st.session_state.is_running:
         st.write(f"⏳ Tự động đổi số sau: **{st.session_state.countdown}** giây")
-        st.progress(st.session_state.countdown / 15) # ĐÃ ĐỔI: Chia cho 15 để thanh tiến trình khớp với chu kỳ mới
+        st.progress(st.session_state.countdown / 15) # Chia cho 15
     else:
         st.info("💡 Hệ thống đang tạm dừng. Bạn có thể thay đổi loại cây trồng hoặc ngưỡng cấu hình phía trên.")
 
@@ -235,11 +235,35 @@ def vpd_controlled_monitor():
                 st.altair_chart(chart_rh, use_container_width=True)
                 
             with tab_vpd:
-                chart_vpd = alt.Chart(df_chart).mark_line(color="#2E7D32", point=True).encode(
+                st.caption(f"ℹ️ Tô màu nền: Xanh dương (Quá ẩm < {vpd_min} kPa), Đỏ (Quá khô > {vpd_max} kPa)")
+                
+                # --- LỚP NỀN CONDITIONAL BANDING ---
+                # Sử dụng 'rect' để tô kín vùng nền từ Y=0 đến Y_min và từ Y_max đến Y_max_scale
+                
+                # 1. Vùng xanh dương (Quá ẩm)
+                rect_blue = alt.Chart(pd.DataFrame({'y': [0], 'y2': [vpd_min]})).mark_rect(color='#0068C9', opacity=0.2).encode(
+                    y='y', y2='y2'
+                )
+                
+                # 2. Vùng đỏ (Quá khô)
+                # Đặt mốc 3.0 là giới hạn tối đa của thang đo trục Y để tô màu
+                rect_red = alt.Chart(pd.DataFrame({'y': [vpd_max], 'y2': [3.0]})).mark_rect(color='#FF4B4B', opacity=0.2).encode(
+                    y='y', y2='y2'
+                )
+                
+                # --- LỚP ĐƯỜNG DỮ LIỆU CHÍNH ---
+                # Giữ nguyên đường Line chart và chấm tròn với màu xanh lá đặc trưng (không đổi màu theo vùng)
+                line_vpd = alt.Chart(df_chart).mark_line(color="#2E7D32", point=True).encode(
                     x=alt.X('Thời gian mô phỏng:O', axis=alt.Axis(title="Mốc giờ trong ngày", labelAngle=0)),
-                    y=alt.Y('VPD (kPa):Q', scale=alt.Scale(zero=False)),
+                    y=alt.Y('VPD (kPa):Q', scale=alt.Scale(domain=[0, 3.0]), axis=alt.Axis(title="VPD (kPa)")), # Ép domain Y từ 0 đến 3
                     tooltip=['STT', 'Thời gian mô phỏng', 'VPD (kPa)']
-                ).properties(height=280)
+                )
+                
+                # --- KẾT HỢP LỚP NỀN VÀ ĐƯỜNG DỮ LIỆU ---
+                # Dùng dấu cộng (+) để xếp chồng lớp nền lên trước, lớp đường lên sau
+                chart_vpd = rect_blue + rect_red + line_vpd
+                chart_vpd = chart_vpd.properties(height=280)
+                
                 st.altair_chart(chart_vpd, use_container_width=True)
 
     # --- CONTAINER 5: LỊCH SỬ DỮ LIỆU BẢNG ---
