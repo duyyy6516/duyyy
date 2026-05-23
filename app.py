@@ -65,7 +65,7 @@ if 'simulated_time' not in st.session_state:
     st.session_state.simulated_time = datetime.now().replace(hour=7, minute=0, second=0).strftime("%Y-%m-%d %H:%M:%S")
 
 # --- HÀM CẬP NHẬT DỮ LIỆU MỚI ---
-def trigger_new_data():
+def trigger_new_data(vpd_min, vpd_max):
     # Chuyển chuỗi thời gian từ session_state về dạng datetime đối tượng để tính toán
     current_sim_datetime = datetime.strptime(st.session_state.simulated_time, "%Y-%m-%d %H:%M:%S")
     
@@ -77,14 +77,23 @@ def trigger_new_data():
     # Tính toán VPD
     new_vpd = calculate_vpd(st.session_state.temp, st.session_state.rh)
     
-    # Lưu vào lịch sử với cột mốc thời gian mô phỏng (Dạng Giờ:Phút)
+    # Xác định chuỗi trạng thái lúc đó để lưu vào bảng lịch sử
+    if new_vpd < vpd_min:
+        status_text = "⚠️ Quá ẩm"
+    elif vpd_min <= new_vpd <= vpd_max:
+        status_text = "✅ Lý tưởng"
+    else:
+        status_text = "🚨 Quá khô"
+    
+    # Lưu vào lịch sử với đầy đủ cột mốc thông tin và trạng thái
     display_time = current_sim_datetime.strftime("%H:%M")
     new_record = {
         "STT": st.session_state.stt_counter,
         "Thời gian mô phỏng": display_time,
         "Nhiệt độ (°C)": st.session_state.temp,
         "Độ ẩm (%)": st.session_state.rh,
-        "VPD (kPa)": round(new_vpd, 2)
+        "VPD (kPa)": round(new_vpd, 2),
+        "Trạng thái": status_text  # Thêm cột Trạng thái mới
     }
     st.session_state.history.insert(0, new_record)
     
@@ -139,14 +148,14 @@ with st.container(border=True):
         if st.button("""▶️ Bắt đầu chạy tự động""", type="primary", use_container_width=True, disabled=st.session_state.is_running):
             st.session_state.is_running = True
             if st.session_state.stt_counter == 0:
-                trigger_new_data()
+                trigger_new_data(vpd_min, vpd_max)
             st.rerun()
     with col_btn2:
         if st.button("""⏸️ Tạm dừng hệ thống""", type="secondary", use_container_width=True, disabled=not st.session_state.is_running):
             st.session_state.is_running = False
             st.rerun()
 
-# Cấu hình chu kỳ quét ngầm của mảnh cắt Fragment
+# Cấu hình chu kỳ quét ngầm
 run_interval = 1 if st.session_state.is_running else 999999
 
 @st.fragment(run_every=run_interval)
@@ -154,7 +163,7 @@ def vpd_controlled_monitor():
     if st.session_state.is_running:
         st.session_state.countdown -= 1
         if st.session_state.countdown < 0:
-            trigger_new_data()
+            trigger_new_data(vpd_min, vpd_max)
             
     if st.session_state.is_running:
         st.write(f"⏳ Tự động đổi số sau: **{st.session_state.countdown}** giây")
@@ -205,13 +214,11 @@ def vpd_controlled_monitor():
         with st.container(border=True):
             st.markdown("<p style='color: gray; font-size: 14px; margin-bottom: 10px;'>📈 BIỂU ĐỒ XU HƯỚNG CHU KỲ NGÀY & ĐÊM (Trục X theo mốc giờ)</p>", unsafe_allow_html=True)
             
-            # Sắp xếp lịch sử từ cũ đến mới để đồ thị chạy đúng trình tự thời gian tăng dần
             df_chart = pd.DataFrame(st.session_state.history).iloc[::-1]
             
             tab_temp, tab_rh, tab_vpd = st.tabs(["🌡️ Biểu đồ Nhiệt độ", "💧 Biểu đồ Độ ẩm", "🎯 Biểu đồ chỉ số VPD"])
             
             with tab_temp:
-                # Sử dụng "Thời gian mô phỏng" làm trục X dạng Ordinal (:O) để chữ nằm ngang cố định
                 chart_temp = alt.Chart(df_chart).mark_line(color="#FF4B4B", point=True).encode(
                     x=alt.X('Thời gian mô phỏng:O', axis=alt.Axis(title="Mốc giờ trong ngày", labelAngle=0)),
                     y=alt.Y('Nhiệt độ (°C):Q', scale=alt.Scale(zero=False)),
@@ -254,7 +261,6 @@ def vpd_controlled_monitor():
                 st.session_state.temp = 0.0
                 st.session_state.rh = 0.0
                 st.session_state.history = []
-                # Đặt lại thời gian mô phỏng về 7h sáng
                 st.session_state.simulated_time = datetime.now().replace(hour=7, minute=0, second=0).strftime("%Y-%m-%d %H:%M:%S")
                 st.rerun()
 
