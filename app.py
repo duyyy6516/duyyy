@@ -3,6 +3,7 @@ import random
 import math
 from datetime import datetime
 import pandas as pd
+import altair as alt  # Thêm thư viện Altair để tối ưu biểu đồ nâng cao
 
 # Cấu hình trang web Streamlit
 st.set_page_config(page_title="Hệ thống giám sát VPD Đà Lạt", page_icon="🌿", layout="centered")
@@ -173,32 +174,41 @@ def vpd_controlled_monitor():
         else:
             st.write("Chờ hệ thống kích hoạt...")
 
-    # --- CONTAINER NEW: BIỂU ĐỒ XU HƯỚNG THỜI GIAN THỰC ---
+    # --- CONTAINER NEW: BIỂU ĐỒ XU HƯỚNG THỜI GIAN THỰC TỰ ĐỘNG CÂN ĐỐI ---
     if len(st.session_state.history) > 0:
         st.write("")
         with st.container(border=True):
-            st.markdown("<p style='color: gray; font-size: 14px; margin-bottom: 10px;'>📈 BIỂU ĐỒ XU HƯỚNG THEO THỨ TỰ ĐO (STT)</p>", unsafe_allow_html=True)
+            st.markdown("<p style='color: gray; font-size: 14px; margin-bottom: 10px;'>📈 BIỂU ĐỒ XU HƯỚNG TỰ ĐỘNG TỐI ƯU GIAO DIỆN</p>", unsafe_allow_html=True)
             
-            # Đảo ngược lại danh sách lịch sử để biểu đồ chạy từ trái (cũ) sang phải (mới)
+            # Sắp xếp lịch sử từ cũ đến mới để vẽ
             df_chart = pd.DataFrame(st.session_state.history).iloc[::-1]
             
             tab_temp, tab_rh, tab_vpd = st.tabs(["🌡️ Biểu đồ Nhiệt độ", "💧 Biểu đồ Độ ẩm", "🎯 Biểu đồ chỉ số VPD"])
             
             with tab_temp:
-                st.caption("Biến thiên Nhiệt độ (°C) theo lần đo (STT):")
-                # Đổi index trục X thành 'STT' thay vì 'Thời gian' để tránh bị xoay dọc chữ
-                chart_temp_data = df_chart.set_index("STT")[["Nhiệt độ (°C)"]]
-                st.line_chart(chart_temp_data, color="#FF4B4B")
+                # Dùng Altair tự động tối ưu trục hoành và căn chữ nằm ngang
+                chart_temp = alt.Chart(df_chart).mark_line(color="#FF4B4B", point=True).encode(
+                    x=alt.X('STT:Q', axis=alt.Axis(title="Lần đo (STT)", labelAngle=0)),
+                    y=alt.Y('Nhiệt độ (°C):Q', scale=alt.Scale(zero=False)),
+                    tooltip=['STT', 'Thời gian', 'Nhiệt độ (°C)']
+                ).properties(height=300)
+                st.altair_chart(chart_temp, use_container_width=True)
                 
             with tab_rh:
-                st.caption("Biến thiên Độ ẩm (%) theo lần đo (STT):")
-                chart_rh_data = df_chart.set_index("STT")[["Độ ẩm (%)"]]
-                st.line_chart(chart_rh_data, color="#0068C9")
+                chart_rh = alt.Chart(df_chart).mark_line(color="#0068C9", point=True).encode(
+                    x=alt.X('STT:Q', axis=alt.Axis(title="Lần đo (STT)", labelAngle=0)),
+                    y=alt.Y('Độ ẩm (%):Q', scale=alt.Scale(zero=False)),
+                    tooltip=['STT', 'Thời gian', 'Độ ẩm (%)']
+                ).properties(height=300)
+                st.altair_chart(chart_rh, use_container_width=True)
                 
             with tab_vpd:
-                st.caption("Biến thiên Chỉ số VPD (kPa) theo lần đo (STT):")
-                chart_vpd_data = df_chart.set_index("STT")[["VPD (kPa)"]]
-                st.line_chart(chart_vpd_data, color="#2E7D32")
+                chart_vpd = alt.Chart(df_chart).mark_line(color="#2E7D32", point=True).encode(
+                    x=alt.X('STT:Q', axis=alt.Axis(title="Lần đo (STT)", labelAngle=0)),
+                    y=alt.Y('VPD (kPa):Q', scale=alt.Scale(zero=False)),
+                    tooltip=['STT', 'Thời gian', 'VPD (kPa)']
+                ).properties(height=300)
+                st.altair_chart(chart_vpd, use_container_width=True)
 
     # --- CONTAINER 5: LỊCH SỬ DỮ LIỆU BẢNG ---
     st.write("")
