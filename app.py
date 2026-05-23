@@ -5,9 +5,9 @@ from datetime import datetime
 import pandas as pd
 
 # Cấu hình trang web Streamlit
-st.set_page_config(page_title="Giám sát VPD & Lịch sử STT", page_icon="🌿", layout="centered")
+st.set_page_config(page_title="Hệ thống VPD điều khiển", page_icon="🌿", layout="centered")
 
-st.title("Hệ Thống Giám Sát & Tính Toán VPD Tự Động 🌿")
+st.title("Hệ Thống Giám Sát & Tính Toán VPD 🌿")
 
 # --- CÔNG THỨC TÍNH VPD ---
 def calculate_vpd(temp, rh):
@@ -24,16 +24,18 @@ if 'countdown' not in st.session_state:
     st.session_state.countdown = 30  
 if 'last_updated' not in st.session_state:
     st.session_state.last_updated = datetime.now().strftime("%H:%M:%S")
-
-# Khởi tạo biến đếm số thứ tự (STT), bắt đầu từ 1
 if 'stt_counter' not in st.session_state:
     st.session_state.stt_counter = 1
+
+# QUAN TRỌNG: Biến kiểm tra hệ thống có đang chạy hay không (Mặc định là False - dừng)
+if 'is_running' not in st.session_state:
+    st.session_state.is_running = False
 
 # Khởi tạo danh sách lưu lịch sử
 if 'history' not in st.session_state:
     first_vpd = calculate_vpd(st.session_state.temp, st.session_state.rh)
     st.session_state.history = [{
-        "STT": st.session_state.stt_counter, # Lần đầu tiên mang STT = 1
+        "STT": st.session_state.stt_counter,
         "Thời gian": st.session_state.last_updated,
         "Nhiệt độ (°C)": st.session_state.temp,
         "Độ ẩm (%)": st.session_state.rh,
@@ -46,89 +48,60 @@ def trigger_new_data():
     st.session_state.rh = round(random.uniform(30.0, 95.0), 1)
     st.session_state.countdown = 30 
     st.session_state.last_updated = datetime.now().strftime("%H:%M:%S")
-    
-    # Tăng số thứ tự lên 1 cho lần đo tiếp theo
     st.session_state.stt_counter += 1
     
     new_vpd = calculate_vpd(st.session_state.temp, st.session_state.rh)
-    
     new_record = {
-        "STT": st.session_state.stt_counter, # Gán STT mới tăng
+        "STT": st.session_state.stt_counter,
         "Thời gian": st.session_state.last_updated,
         "Nhiệt độ (°C)": st.session_state.temp,
         "Độ ẩm (%)": st.session_state.rh,
         "VPD (kPa)": round(new_vpd, 2)
     }
-    # Đẩy lên đầu bảng
     st.session_state.history.insert(0, new_record)
 
-# --- ĐOẠN CODE CHẠY LẠI MỖI 1 GIÂY ---
-@st.fragment(run_every=1)
-def vpd_monitor_with_history_stt():
-    # 1. Trừ thời gian đếm ngược
-    st.session_state.countdown -= 1
-    
-    # 2. Hết 30s kích hoạt số mới
-    if st.session_state.countdown < 0:
-        trigger_new_data()
-    
-    # 3. HIỂN THỊ SỐ ĐẾM NGƯỢC
-    st.write(f"### ⏳ Tự động đổi số sau: **{st.session_state.countdown}** giây")
-    st.progress(st.session_state.countdown / 30)
-    
-    st.caption(f"🔄 Cập nhật dữ liệu mới nhất lúc: {st.session_state.last_updated} (Lần đo thứ: {st.session_state.stt_counter})")
+# --- KHU VỰC ĐIỀU KHIỂN (BẮT ĐẦU / TẠM DỪNG) ---
+st.write("### 🎛️ Bảng Điều Khiển")
+col_btn1, col_btn2 = st.columns(2)
+
+with col_btn1:
+    if st.button("▶️ Bắt đầu chạy tự động", type="primary", disabled=st.session_state.is_running):
+        st.session_state.is_running = True
+        st.rerun()
+
+with col_btn2:
+    if st.button("⏸️ Tạm dừng hệ thống", type="secondary", disabled=not st.session_state.is_running):
+        st.session_state.is_running = False
+        st.rerun()
+
+st.write("---")
+
+# --- ĐOẠN CODE CHẠY LẠI MỖI 1 GIÂY (CHỈ HOẠT ĐỘNG KHI IS_RUNNING = TRUE) ---
+# Nếu đang chạy thì fragment sẽ quét mỗi 1 giây, nếu đang dừng thì quét mỗi 999999 giây (coi như đứng im)
+run_interval = 1 if st.session_state.is_running else 999999
+
+@st.fragment(run_every=run_interval)
+def vpd_controlled_monitor():
+    # 1. Xử lý đếm ngược nếu trạng thái đang bật
+    if st.session_state.is_running:
+        st.session_state.countdown -= 1
+        if st.session_state.countdown < 0:
+            trigger_new_data()
+            
+    # 2. HIỂN THỊ TRẠNG THÁI & ĐỒNG HỒ
+    if st.session_state.is_running:
+        st.success(f"🟢 Hệ thống đang HOẠT ĐỘNG tự động")
+        st.write(f"### ⏳ Tự động đổi số sau: **{st.session_state.countdown}** giây")
+        st.progress(st.session_state.countdown / 30)
+    else:
+        st.error(f"🔴 Hệ thống đang TẠM DỪNG (Hãy bấm Bắt đầu ở trên để chạy)")
+        st.write(f"### ⏳ Đang chờ kích hoạt...")
+        st.progress(1.0)
+        
+    st.caption(f"🔄 Dữ liệu cập nhật gần nhất: {st.session_state.last_updated} (Lần thứ: {st.session_state.stt_counter})")
     st.write("---")
 
-    # 4. HIỂN THỊ THÔNG SỐ HIỆN TẠI
+    # 3. HIỂN THỊ THÔNG SỐ HIỆN TẠI
     col1, col2 = st.columns(2)
     with col1:
-        st.metric(label="🌡️ Nhiệt độ hiện tại", value=f"{st.session_state.temp} °C")
-    with col2:
-        st.metric(label="💧 Độ ẩm hiện tại", value=f"{st.session_state.rh} %")
-        
-    vpd_result = calculate_vpd(st.session_state.temp, st.session_state.rh)
-    
-    st.write("---")
-    st.subheader("Chỉ số VPD hiện tại:")
-    st.metric(label="Áp suất hơi thâm hụt (Vapor Pressure Deficit)", value=f"{vpd_result:.2f} kPa")
-    
-    # Đánh giá môi trường
-    if vpd_result < 0.4:
-        st.warning("⚠️ **VPD quá thấp (Môi trường quá ẩm):** Cây khó thoát nước, dễ bị nấm bệnh.")
-    elif 0.4 <= vpd_result <= 0.8:
-        st.info("🌱 **VPD Thấp:** Phù hợp cho giai đoạn nhân giống, kích rễ hoặc cây con.")
-    elif 0.8 < vpd_result <= 1.2:
-        st.success("✅ **VPD Lý tưởng:** Môi trường hoàn hảo cho hầu hết các loại cây.")
-    elif 1.2 < vpd_result <= 1.6:
-        st.info("🍂 **VPD Hơi cao:** Phù hợp cho giai đoạn cây ra hoa hoặc tạo quả.")
-    else:
-        st.error("🚨 **VPD quá cao (Môi trường quá khô):** Cây mất nước quá nhanh.")
-
-    # Nút bấm đổi số khẩn cấp
-    if st.button("🎲 Random Ngay Lập Tức", type="secondary"):
-        trigger_new_data()
-        st.rerun()
-
-    # --- 5. HIỂN THỊ LỊCH SỬ DỮ LIỆU CÓ STT ---
-    st.write("---")
-    st.subheader("📋 Lịch Sử Dữ Liệu Đã Ghi Nhận")
-    
-    df_history = pd.DataFrame(st.session_state.history)
-    
-    # Hiển thị bảng dữ liệu ra màn hình
-    st.dataframe(df_history, use_container_width=True, hide_index=True)
-    
-    # Nút bấm xóa lịch sử (reset về 1)
-    if st.button("🗑️ Xóa Lịch Sử"):
-        st.session_state.stt_counter = 1
-        st.session_state.history = [{
-            "STT": st.session_state.stt_counter,
-            "Thời gian": st.session_state.last_updated,
-            "Nhiệt độ (°C)": st.session_state.temp,
-            "Độ ẩm (%)": st.session_state.rh,
-            "VPD (kPa)": round(vpd_result, 2)
-        }]
-        st.rerun()
-
-# Chạy toàn bộ hệ thống
-vpd_monitor_with_history_stt()
+        st.metric(label="🌡️ Nhi
