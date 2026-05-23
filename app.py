@@ -4,10 +4,12 @@ import math
 from datetime import datetime
 import pandas as pd
 
-# Cấu hình trang web Streamlit
-st.set_page_config(page_title="Hệ thống VPD điều khiển", page_icon="🌿", layout="centered")
+# Cấu hình trang web Streamlit (Sử dụng giao diện rộng rãi)
+st.set_page_config(page_title="Hệ thống giám sát VPD", page_icon="🌿", layout="centered")
 
-st.title("""Hệ Thống Giám Sát & Tính Toán VPD""")
+# --- TIÊU ĐỀ CHÍNH ---
+st.markdown("<h2 style='text-align: center; color: #2E7D32;'>🌿 HỆ THỐNG GIÁM SÁT & TÍNH TOÁN VPD</h2>", unsafe_allow_html=True)
+st.write("")
 
 # --- CÔNG THỨC TÍNH VPD ---
 def calculate_vpd(temp, rh):
@@ -26,8 +28,6 @@ if 'last_updated' not in st.session_state:
     st.session_state.last_updated = datetime.now().strftime("%H:%M:%S")
 if 'stt_counter' not in st.session_state:
     st.session_state.stt_counter = 1
-
-# Biến kiểm tra trạng thái chạy (Mặc định ban đầu là False - dừng)
 if 'is_running' not in st.session_state:
     st.session_state.is_running = False
 
@@ -60,87 +60,87 @@ def trigger_new_data():
     }
     st.session_state.history.insert(0, new_record)
 
-# --- KHU VỰC CÁC NÚT BẤM (BẮT ĐẦU / TẠM DỪNG) ---
-col_btn1, col_btn2 = st.columns(2)
+# --- CONTAINER 1: KHU VỰC ĐIỀU KHIỂN & ĐỒNG HỒ ---
+with st.container(border=True):
+    col_btn1, col_btn2 = st.columns(2)
+    with col_btn1:
+        if st.button("""▶️ Bắt đầu chạy tự động""", type="primary", use_container_width=True, disabled=st.session_state.is_running):
+            st.session_state.is_running = True
+            st.rerun()
+    with col_btn2:
+        if st.button("""⏸️ Tạm dừng hệ thống""", type="secondary", use_container_width=True, disabled=not st.session_state.is_running):
+            st.session_state.is_running = False
+            st.rerun()
 
-with col_btn1:
-    if st.button("""▶️ Bắt đầu chạy tự động""", type="primary", disabled=st.session_state.is_running):
-        st.session_state.is_running = True
-        st.rerun()
-
-with col_btn2:
-    if st.button("""⏸️ Tạm dừng hệ thống""", type="secondary", disabled=not st.session_state.is_running):
-        st.session_state.is_running = False
-        st.rerun()
-
-st.write("---")
-
-# --- ĐOẠN CODE CHẠY LẠI MỖI 1 GIÂY ---
+# Cấu hình chu kỳ quét ngầm
 run_interval = 1 if st.session_state.is_running else 999999
 
 @st.fragment(run_every=run_interval)
 def vpd_controlled_monitor():
-    # 1. Xử lý giảm số giây đếm ngược nếu trạng thái đang bật
     if st.session_state.is_running:
         st.session_state.countdown -= 1
         if st.session_state.countdown < 0:
             trigger_new_data()
             
-    # 2. HIỂN THỊ TRẠNG THÁI & ĐỒNG HỒ ĐẾM NGƯỢC
+    # Hiển thị thanh tiến trình đếm ngược lồng vào trong khung điều khiển
     if st.session_state.is_running:
-        st.success("""🟢 Hệ thống đang HOẠT ĐỘNG tự động""")
-        st.write(f"""### ⏳ Tự động đổi số sau: **{st.session_state.countdown}** giây""")
+        st.write(f"⏳ Tự động đổi số sau: **{st.session_state.countdown}** giây")
         st.progress(st.session_state.countdown / 30)
     else:
-        st.error("""🔴 Hệ thống đang TẠM DỪNG (Hãy bấm Bắt đầu ở trên để chạy)""")
-        st.write("""### ⏳ Đang chờ kích hoạt...""")
-        st.progress(1.0)
-        
-    st.caption(f"""🔄 Dữ liệu cập nhật gần nhất: {st.session_state.last_updated} (Lần thứ: {st.session_state.stt_counter})""")
-    st.write("---")
+        st.info("💡 Hệ thống đang tạm dừng. Bấm nút màu xanh phía trên để bắt đầu chạy tự động.")
 
-    # 3. HIỂN THỊ THÔNG SỐ CƠ BẢN
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric(label="🌡️ Nhiệt độ hiện tại", value=f"{st.session_state.temp} °C")
-    with col2:
-        st.metric(label="💧 Độ ẩm hiện tại", value=f"{st.session_state.rh} %")
-        
+    # --- CONTAINER 2: THÔNG SỐ HIỆN TẠI ---
+    st.write("")
+    with st.container(border=True):
+        st.markdown("<p style='color: gray; font-size: 14px; margin-bottom: 5px;'>📊 THÔNG SỐ THỜI GIAN THỰC</p>", unsafe_allow_html=True)
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric(label="🌡️ Nhiệt độ", value=f"{st.session_state.temp} °C")
+        with col2:
+            st.metric(label="💧 Độ ẩm", value=f"{st.session_state.rh} %")
+        st.caption(f"⏱️ Cập nhật lúc: {st.session_state.last_updated} (Lần đo thứ: {st.session_state.stt_counter})")
+
+    # --- CONTAINER 3: KẾT QUẢ VPD & ĐÁNH GIÁ ---
     vpd_result = calculate_vpd(st.session_state.temp, st.session_state.rh)
     
-    st.write("---")
-    st.subheader("""Chỉ số VPD hiện tại:""")
-    st.metric(label="Áp suất hơi thâm hụt (Vapor Pressure Deficit)", value=f"{vpd_result:.2f} kPa")
-    
-    # 4. ĐÁNH GIÁ MÔI TRƯỜNG DỰA TRÊN VPD
-    if vpd_result < 0.4:
-        st.warning("""⚠️ **VPD quá thấp (Môi trường quá ẩm):** Cây khó thoát nước.""")
-    elif 0.4 <= vpd_result <= 0.8:
-        st.info("""🌱 **VPD Thấp:** Phù hợp cho giai đoạn nhân giống, kích rễ.""")
-    elif 0.8 < vpd_result <= 1.2:
-        st.success("""✅ **VPD Lý tưởng:** Môi trường hoàn hảo cho cây phát triển.""")
-    elif 1.2 < vpd_result <= 1.6:
-        st.info("""🍂 **VPD Hơi cao:** Phù hợp cho giai đoạn ra hoa, tạo quả.""")
-    else:
-        st.error("""🚨 **VPD quá cao (Môi trường quá khô):** Cây mất nước nhanh.""")
+    st.write("")
+    with st.container(border=True):
+        st.markdown("<p style='color: gray; font-size: 14px; margin-bottom: 5px;'>🎯 CHỈ SỐ VPD ĐẦU RA</p>", unsafe_allow_html=True)
+        st.metric(label="Áp suất hơi thâm hụt (Vapor Pressure Deficit)", value=f"{vpd_result:.2f} kPa")
+        
+        # Đánh giá môi trường tương ứng
+        if vpd_result < 0.4:
+            st.warning("""⚠️ **VPD quá thấp (Quá ẩm):** Cây khó thoát nước, dễ bị nấm bệnh.""")
+        elif 0.4 <= vpd_result <= 0.8:
+            st.info("""🌱 **VPD Thấp:** Phù hợp cho giai đoạn nhân giống, kích rễ, cây con.""")
+        elif 0.8 < vpd_result <= 1.2:
+            st.success("""✅ **VPD Lý tưởng:** Môi trường hoàn hảo cho đa số các loại cây trồng lớn mạnh.""")
+        elif 1.2 < vpd_result <= 1.6:
+            st.info("""🍂 **VPD Hơi cao:** Phù hợp cho giai đoạn cây ra hoa hoặc kết trái.""")
+        else:
+            st.error("""🚨 **VPD quá cao (Quá khô):** Cây mất nước nhanh, dễ bị héo và đóng khí khổng.""")
 
-    # --- 5. HIỂN THỊ LỊCH SỬ DỮ LIỆU ---
-    st.write("---")
-    st.subheader("""📋 Lịch Sử Dữ Liệu Đã Ghi Nhận""")
-    df_history = pd.DataFrame(st.session_state.history)
-    st.dataframe(df_history, use_container_width=True, hide_index=True)
-    
-    # Nút xóa lịch sử nếu muốn reset bảng
-    if st.button("""🗑️ Xóa Lịch Sử"""):
-        st.session_state.stt_counter = 1
-        st.session_state.history = [{
-            "STT": st.session_state.stt_counter,
-            "Thời gian": st.session_state.last_updated,
-            "Nhiệt độ (°C)": st.session_state.temp,
-            "Độ ẩm (%)": st.session_state.rh,
-            "VPD (kPa)": round(vpd_result, 2)
-        }]
-        st.rerun()
+    # --- CONTAINER 4: LỊCH SỬ DỮ LIỆU ---
+    st.write("")
+    with st.container(border=True):
+        st.markdown("<p style='color: gray; font-size: 14px; margin-bottom: 10px;'>📋 LỊCH SỬ DỮ LIỆU ĐÃ GHI NHẬN</p>", unsafe_allow_html=True)
+        
+        df_history = pd.DataFrame(st.session_state.history)
+        st.dataframe(df_history, use_container_width=True, hide_index=True)
+        
+        # Nút xóa lịch sử nhỏ gọn đặt sát góc
+        col_space, col_del = st.columns([4, 1])
+        with col_del:
+            if st.button("""🗑️ Xóa lịch sử""", type="secondary", use_container_width=True):
+                st.session_state.stt_counter = 1
+                st.session_state.history = [{
+                    "STT": st.session_state.stt_counter,
+                    "Thời gian": st.session_state.last_updated,
+                    "Nhiệt độ (°C)": st.session_state.temp,
+                    "Độ ẩm (%)": st.session_state.rh,
+                    "VPD (kPa)": round(vpd_result, 2)
+                }]
+                st.rerun()
 
-# Chạy toàn bộ chương trình
+# Chạy toàn bộ chương trình Dashboard
 vpd_controlled_monitor()
