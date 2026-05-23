@@ -80,7 +80,7 @@ def get_quick_solution(vpd_val, vpd_min, vpd_max, hour):
         elif 15 <= hour < 19:
             return "Nhiệt muộn vẫn cao. Bổ sung một lượt phun sương ngắn để hạ nhiệt trước khi đóng vách kính."
         else:
-            return "Hiện tượng nhiệt tăng bất thường ban đêm. Kiểm tra thiết bị sưởi hoặc đóng kín vách ngăn gió."
+            return "Hiện tượng nhiệt tăng bất abnormal ban đêm. Kiểm tra thiết bị sưởi hoặc đóng kín vách ngăn gió."
 
 # --- HÀM PHÂN TÍCH THỜI GIAN THỰC THEO BUỔI ---
 def analyze_day_by_blocks_rt(history_list, vpd_min, vpd_max, target_date_str):
@@ -366,7 +366,7 @@ def vpd_controlled_monitor():
             rt_report_df = analyze_day_by_blocks_rt(st.session_state.history, vpd_min, vpd_max, selected_view_day)
             st.dataframe(rt_report_df, use_container_width=True, hide_index=True)
 
-        # --- BIỂU ĐỒ XU HƯỚNG CHU KỲ (ĐÃ SỬA LỖI TRÀN VÙNG MÀU CẢNH BÁO) ---
+        # --- BIỂU ĐỒ XU HƯỚNG CHU KỲ (Cú pháp Altair chuẩn hóa không còn lỗi) ---
         st.write("")
         with st.container(border=True):
             st.markdown(f"<p style='color: gray; font-size: 14px; margin-bottom: 2px;'>📈 BIỂU ĐỒ XU HƯỚNG THEO CHU KỲ - LỌC: {selected_view_day}</p>", unsafe_allow_html=True)
@@ -392,14 +392,14 @@ def vpd_controlled_monitor():
             with tab_vpd:
                 st.caption(f"ℹ️ Vùng màu an toàn theo [{plant_option}]: 🟦 Quá ẩm (< {vpd_min} kPa) | 🟥 Quá khô (> {vpd_max} kPa)")
                 
-                # Sửa thuật toán vẽ vùng màu nền dùng alt.datum giúp tự động phủ từ biên này tới biên kia của đồ thị
+                # SỬA LỖI TẠI ĐÂY: Sử dụng đối tượng cấu hình chuẩn 'datum=...' thay vì gọi '.datum()' trống
                 rect_blue = alt.Chart(df_filtered).mark_rect(color='#0068C9', opacity=0.12).encode(
-                    y=alt.Y().datum(0.0),
-                    y2=alt.Y2().datum(vpd_min)
+                    y=alt.Y(datum=0.0),
+                    y2=alt.Y2(datum=vpd_min)
                 )
                 rect_red = alt.Chart(df_filtered).mark_rect(color='#FF4B4B', opacity=0.12).encode(
-                    y=alt.Y().datum(vpd_max),
-                    y2=alt.Y2().datum(3.0)
+                    y=alt.Y(datum=vpd_max),
+                    y2=alt.Y2(datum=2.0)
                 )
                 line_vpd = alt.Chart(df_filtered).mark_line(color="#2E7D32", point=True).encode(
                     x=alt.X('Hiển thị Giờ:O', axis=alt.Axis(title="Mốc thời gian", labelAngle=-45)),
