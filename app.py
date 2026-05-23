@@ -24,13 +24,8 @@ MQTT_BROKER = "broker.hivemq.com"
 MQTT_PORT = 1883
 MQTT_TOPIC = "vuon_thong_minh/duy_tran/sensors"
 
-# ⚠️ THAY THẾ BẰNG TOKEN CỦA BẠN - KHÔNG SHARE PUBLIC CODE CÓ TOKEN
 TELEGRAM_TOKEN = "YOUR_TELEGRAM_TOKEN"   
-TELEGRAM_CHAT_ID = "YOUR_CHAT_ID"                                       
-
-# Hàng đợi (Queue) giúp truyền dữ liệu an toàn từ luồng MQTT sang luồng Streamlit
-if "mqtt_queue" not in st.session_state:
-    st.session_state.mqtt_queue = queue.Queue()
+TELEGRAM_CHAT_ID = "YOUR_CHAT_ID"                                        
 
 # --- KHỞI TẠO STATE ---
 if "mqtt_df" not in st.session_state:
@@ -51,7 +46,7 @@ if st.session_state.is_running:
     st_autorefresh(interval=30000, key="iot_refresh")
 
 # =====================================================================
-# BỘ ĐIỀU KHIỂN BẮT ĐẦU / DỪNG LẠI (PLAY / PAUSE BUTTONS)
+# BỘ ĐIỀU KHIỂN BẮT ĐẦU / DỪNG LẠI
 # =====================================================================
 st.subheader("🎮 Bộ Điều Khiển Hệ Thống")
 col_start, col_stop = st.columns(2)
@@ -70,7 +65,7 @@ with col_stop:
 if st.session_state.is_running:
     st.success("🤖 Hệ thống đang: **CHẠY TỰ ĐỘNG (Xung nhịp 30s chuẩn)**")
 else:
-    st.warning("⏸️ Hệ thống đang: **TẠM DỪNG QUÉT** (Đang giữ nguyên thông số hiển thị và CHẶN tin nhắn)")
+    st.warning("⏸️ Hệ thống đang: **TẠM DỪNG QUÉT**")
 
 # =====================================================================
 # CẤU HÌNH THANH TRƯỢT NGƯỠNG ĐỘNG
@@ -120,7 +115,7 @@ def calculate_vpd(temp, humi):
 
 def send_telegram_auto(message):
     if TELEGRAM_TOKEN == "YOUR_TELEGRAM_TOKEN":
-        return # Bỏ qua nếu chưa cấu hình Token
+        return 
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     try: 
         requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"}, timeout=2)
@@ -148,7 +143,6 @@ def evaluate_status(vpd, temp, humi, station_id, low_t, high_t):
         return "⚠️ CẢNH BÁO SỚM: SẮP QUÁ ẨM", f"VPD tiến sát mốc dưới ({vpd} kPa). Độ ẩm đang tăng nhanh.", "Nên tăng nhẹ nhiệt độ phòng hoặc bật quạt đối lưu để kéo VPD lên."
     elif (high_t - 0.1) <= vpd <= high_t:
         return "⚠️ CẢNH BÁO SỚM: SẮP KHÔ NÓNG", f"VPD tiến sát mốc trên ({vpd} kPa). Môi trường đang khô dần.", "Nên tăng độ ẩm (phun sương nhẹ) hoặc kéo lưới lan giảm nhiệt độ phòng."
-
     else:
         return "Môi trường hoàn hảo lý tưởng", f"VPD đạt điểm vàng quang hợp ({vpd} kPa).", "Thời điểm vàng để cây sinh trưởng tốt. Giữ nguyên chế độ vườn."
 
@@ -179,7 +173,7 @@ def process_incoming_data(df_new):
             status, reason, action = evaluate_status(vpd_val, t_val, h_val, station_id, low_t, high_t)
             
             msg = (
-                f"📡 *[MÔ PHỎNG REALTIME] TRẠM {station_id}/5*\n"
+                f"📡 *[CẬP NHẬT TRẠM {station_id}/5*\n"
                 f"⏱ Cập nhật: `{time_log}`\n"
                 f"🌡 Nhiệt độ: {t_val}°C | 💧 Độ ẩm: {h_val}%\n"
                 f"💨 Chỉ số VPD: *{vpd_val} kPa*\n"
@@ -200,35 +194,41 @@ def process_incoming_data(df_new):
     else:
         st.session_state.mqtt_df = pd.concat([st.session_state.mqtt_df, df_normalized], ignore_index=True).drop_duplicates(subset=['STT', 'Thời gian']).tail(200)
 
-# --- CƠ CHẾ LẮNG NGHE MQTT ---
+# --- CƠ CHẾ LẮNG NGHE MQTT AN TOÀN ---
 def on_message(client, userdata, message):
     try:
         payload_str = message.payload.decode("utf-8")
         new_data = json.loads(payload_str)
         df_new = pd.DataFrame(new_data)
-        # Đưa dữ liệu vào hàng đợi thay vì gọi trực tiếp session_state
-        st.session_state.mqtt_queue.put(df_new)
+        # Sử dụng userdata (chính là hàng đợi được truyền từ luồng chính) thay vì st.session_state
+        userdata.put(df_new)
     except Exception as e:
         print(f"Lỗi giải mã MQTT: {e}")
 
 @st.cache_resource
 def start_mqtt_client():
+    # Khởi tạo một hàng đợi độc lập trong bộ nhớ cache
+    msg_queue = queue.Queue()
     mqtt_client = mqtt.Client()
+    
+    # Gắn hàng đợi này vào userdata để luồng ngầm có thể truy cập an toàn
+    mqtt_client.user_data_set(msg_queue)
     mqtt_client.on_message = on_message
     mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
     mqtt_client.subscribe(MQTT_TOPIC)
     mqtt_client.loop_start()
-    return mqtt_client
+    return mqtt_client, msg_queue
 
-_ = start_mqtt_client()
+# Nhận về cả client và hàng đợi tương ứng
+_, mqtt_queue = start_mqtt_client()
 
-# Xử lý các tin nhắn MQTT đang chờ trong Queue
-while not st.session_state.mqtt_queue.empty():
-    incoming_df = st.session_state.mqtt_queue.get()
+# Giải phóng toàn bộ dữ liệu thực tế từ MQTT Broker
+while not mqtt_queue.empty():
+    incoming_df = mqtt_queue.get()
     process_incoming_data(incoming_df)
 
 # =====================================================================
-# XỬ LÝ ĐIỀU PHỐI XUNG NHỊP CHUẨN THEO TICK AUTOREFRESH
+# XỬ LÝ ĐIỀU PHỐI XUNG NHỊP CHUẨN MÔ PHỎNG
 # =====================================================================
 st.subheader("⏱️ Tiến Độ Điều Phối Xung Nhịp")
 
@@ -245,8 +245,7 @@ with col2:
 if st.session_state.is_running and st.session_state.last_processed_idx != idx:
     current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
-    if active_station == "1":
-        st.session_state.mqtt_df = pd.DataFrame()
+    # 📝 ĐÃ XÓA dòng xóa trắng DataFrame tại đây để bảo vệ dữ liệu biểu đồ
 
     scenarios = ["NORMAL", "MAX_HUMIDITY", "EXTREME_HOT", "LOST_SIGNAL"]
     weights = [0.85, 0.07, 0.05, 0.03]
@@ -338,7 +337,6 @@ for station_id in STATIONS_LIST:
     if str(station_id) != "5" and h_val > 100: h_val /= 10.0
     
     vpd_val = round(calculate_vpd(t_val, h_val), 3)
-    
     status, reason, action = evaluate_status(vpd_val, t_val, h_val, station_id, low_threshold, high_threshold)
     
     processed_chunks.append(pd.DataFrame([{
