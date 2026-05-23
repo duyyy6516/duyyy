@@ -1,84 +1,76 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import requests
 import random
 import streamlit.components.v1 as components
 import plotly.express as px
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
 
-# =====================================================================
-# CẤU HÌNH GIAO DIỆN
-# =====================================================================
+# Cấu hình
 st.set_page_config(page_title="Hệ Thống Quét Điều Khiển", page_icon="🌿", layout="centered")
 st.title("🌿 Giám Sát Real-Time: Trạm 01")
 
-# --- KHỞI TẠO STATE ---
+# Khởi tạo trạng thái
 if "mqtt_df" not in st.session_state: st.session_state.mqtt_df = pd.DataFrame()
-# Mặc định là False để KHÔNG chạy khi mới load web
-if "is_running" not in st.session_state: st.session_state.is_running = False 
+if "is_running" not in st.session_state: st.session_state.is_running = False
 
-# =====================================================================
-# BỘ ĐIỀU KHIỂN BẮT ĐẦU / DỪNG
-# =====================================================================
+# Hàm logic tính toán
+def calculate_vpd(temp, humi):
+    vp_sat = 0.61078 * np.exp((17.27 * temp) / (temp + 237.3))
+    return float(np.clip(vp_sat * (1 - (humi / 100)), 0, None))
+
+# Bộ điều khiển
 st.subheader("⚙️ Bộ Điều Khiển Hệ Thống")
 col_start, col_stop = st.columns(2)
 
 if col_start.button("▶️ BẮT ĐẦU", type="primary"):
     st.session_state.is_running = True
+    # Chạy lần đầu ngay khi bấm
     st.rerun()
 
 if col_stop.button("⏸️ DỪNG LẠI"):
     st.session_state.is_running = False
     st.rerun()
 
-# Chỉ kích hoạt autorefresh khi is_running = True
+# --- CHỈ CHẠY LOGIC KHI ĐÃ BẤM BẮT ĐẦU ---
 if st.session_state.is_running:
+    # 1. Kích hoạt tự làm mới trang sau mỗi 30s
     st_autorefresh(interval=30000, key="iot_refresh")
-    st.success("✅ Hệ thống đang CHẠY")
-else:
-    st.warning("⏸️ Hệ thống đang DỪNG. Nhấn Bắt đầu để quét.")
-
-# =====================================================================
-# CÁC HÀM XỬ LÝ
-# =====================================================================
-def calculate_vpd(temp, humi):
-    vp_sat = 0.61078 * np.exp((17.27 * temp) / (temp + 237.3))
-    return float(np.clip(vp_sat * (1 - (humi / 100)), 0, None))
-
-# =====================================================================
-# LOGIC CHỈ CHẠY KHI ĐÃ BẤM NÚT
-# =====================================================================
-if st.session_state.is_running:
-    # 1. Tạo dữ liệu random (Mô phỏng)
+    
+    # 2. Tạo dữ liệu
     temp = round(random.uniform(25.0, 35.0), 1)
     humi = round(random.uniform(50.0, 85.0), 1)
-    time_log = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    time_log = datetime.now().strftime("%H:%M:%S")
     vpd = calculate_vpd(temp, humi)
     
-    # 2. Lưu vào DataFrame
     new_row = pd.DataFrame([{"Thời gian": time_log, "Nhiệt độ": temp, "Độ ẩm": humi, "VPD": vpd}])
     st.session_state.mqtt_df = pd.concat([st.session_state.mqtt_df, new_row]).tail(100)
+    
+    st.success("✅ Hệ thống đang chạy - Đang cập nhật dữ liệu...")
 
-    # 3. Hiển thị bộ đếm ngược 30s
+    # 3. Bộ đếm ngược hiển thị trên giao diện
     countdown_html = """
-    <div style="background-color: #f0f2f6; padding: 12px; border-radius: 8px; border-left: 5px solid #1f77b4; margin: 10px 0;">
-        <span style="font-weight: bold;">⏱️ CHU KỲ QUÉT:</span> 
-        <span id="timer" style="color: #ff4b4b; font-weight: bold;">30</span> giây nữa sẽ cập nhật...
+    <div style="background-color: #e8f4f9; padding: 10px; border-radius: 8px; border-left: 5px solid #007bff; margin-bottom: 10px;">
+        ⏱️ <b>Chu kỳ quét:</b> <span id="timer" style="color: #d9534f; font-weight: bold;">30</span> giây nữa cập nhật lần kế tiếp.
     </div>
     <script>
-        let t = 30;
-        setInterval(() => { t = t > 0 ? t - 1 : 30; document.getElementById('timer').innerText = t; }, 1000);
+        var timeLeft = 30;
+        var timerElement = document.getElementById('timer');
+        var countdown = setInterval(function() {
+            timeLeft--;
+            if(timeLeft <= 0) { clearInterval(countdown); }
+            else { timerElement.innerText = timeLeft; }
+        }, 1000);
     </script>
     """
     components.html(countdown_html, height=60)
 
-# =====================================================================
-# HIỂN THỊ DỮ LIỆU
-# =====================================================================
+else:
+    st.warning("⏸️ Hệ thống đang TẠM DỪNG. Nhấn nút [BẮT ĐẦU] để khởi động trạm.")
+
+# Hiển thị dữ liệu (Luôn hiển thị nếu đã có dữ liệu từ trước)
 if not st.session_state.mqtt_df.empty:
     st.dataframe(st.session_state.mqtt_df.sort_index(ascending=False), use_container_width=True)
-    
-    fig = px.line(st.session_state.mqtt_df, x="Thời gian", y="VPD", title="Chỉ số VPD Trạm 01")
+    fig = px.line(st.session_state.mqtt_df, x="Thời gian", y="VPD", title="Biểu đồ VPD")
     st.plotly_chart(fig, use_container_width=True)
