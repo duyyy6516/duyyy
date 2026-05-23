@@ -234,7 +234,8 @@ def trigger_new_data(vpd_min, vpd_max, token, chat_id):
         )
         send_telegram_message(token, chat_id, telegram_msg)
     
-    next_sim_datetime = current_sim_datetime + timedelta(minutes=30)
+    # 🔥 ĐÃ ĐỔI TỪ 30 PHÚT THÀNH 10 PHÚT THEO YÊU CẦU CỦA BẠN
+    next_sim_datetime = current_sim_datetime + timedelta(minutes=10)
     
     if next_sim_datetime.hour == 0 and next_sim_datetime.minute == 0:
         st.session_state.is_running = False     
@@ -252,7 +253,6 @@ with st.container(border=True):
                 setup_next_day()
             st.session_state.is_running = True
             if st.session_state.stt_counter == 0: 
-                # Đọc giá trị cấu hình trực tiếp để kích hoạt phát số đầu tiên chính xác
                 trigger_new_data(st.session_state.vpd_range_val[0], st.session_state.vpd_range_val[1], TELE_TOKEN, TELE_CHAT_ID)
             st.rerun()
     with col_btn2:
@@ -260,7 +260,7 @@ with st.container(border=True):
             st.session_state.is_running = False
             st.rerun()
 
-# --- CONTAINER 2: BẢN ĐIỀU KHIỂN CẤU HÌNH (ĐÃ CHUYỂN XUỐNG DƯỚI NÚT BẮT ĐẦU) ---
+# --- CONTAINER 2: BẢN ĐIỀU KHIỂN CẤU HÌNH (NẰM DƯỚI NÚT ĐIỀU KHIỂN) ---
 st.write("")
 with st.container(border=True):
     st.markdown("<p style='color: #2E7D32; font-size: 16px; font-weight: bold; margin-bottom: 5px;'>⚙️ BẢN ĐIỀU KHIỂN CẤU HÌNH CÂY TRỒNG</p>", unsafe_allow_html=True)
@@ -274,10 +274,8 @@ with st.container(border=True):
         disabled=st.session_state.is_running
     )
     
-    # Đồng bộ index loại cây trồng
     st.session_state.plant_idx = plant_list.index(plant_option)
     
-    # Xác định khoảng mặc định theo cây
     if plant_option == "🍓 Dâu tây Đà Lạt": default_range = (0.6, 1.0)
     elif plant_option == "🌹 Hoa hồng nhà kính": default_range = (0.8, 1.2)
     elif plant_option == "🌼 Hoa cúc / Hoa đồng tiền": default_range = (0.7, 1.1)
@@ -314,7 +312,7 @@ def vpd_controlled_monitor():
     current_sim_dt = datetime.strptime(st.session_state.simulated_time, "%Y-%m-%d %H:%M:%S")
     current_date_display = current_sim_dt.strftime("Ngày %d/%m")
     
-    # --- CONTAINER 3: THÔNG SỐ REALTIME HÌNH THỨC ---
+    # --- CONTAINER 3: THÔNG SỐ REALTIME ---
     st.write("")
     with st.container(border=True):
         st.markdown(f"### ⏰ Thời gian nhà kính hiện tại: <span style='color:#2E7D32;'>{current_date_display} - {current_sim_dt.strftime('%H:%M')}</span>", unsafe_allow_html=True)
@@ -322,7 +320,7 @@ def vpd_controlled_monitor():
         with col1: st.metric(label="🌡️ Nhiệt độ", value=f"{st.session_state.temp} °C" if st.session_state.stt_counter > 0 else "-- °C")
         with col2: st.metric(label="💧 Độ ẩm", value=f"{st.session_state.rh} %" if st.session_state.stt_counter > 0 else "-- %")
 
-    # --- ĐỊNH DẠNG THEO THỨ TỰ YÊU CẦU: TRẠNG THÁI -> GIẢI PHÁP -> XU HƯỚNG ---
+    # --- HỆ THỐNG PHÂN TÍCH & ĐIỀU HÀNH ---
     vpd_result = calculate_vpd(st.session_state.temp, st.session_state.rh)
     st.write("")
     with st.container(border=True):
@@ -351,10 +349,9 @@ def vpd_controlled_monitor():
             st.markdown(f"**1️⃣ Trạng thái hệ thống:** Chỉ số hiện tại đạt <span style='font-size: 16px; color: {text_color}; font-weight: bold;'>{vpd_result:.2f} kPa</span> —— Phân loại: **{status_lbl}**", unsafe_allow_html=True)
             st.markdown(f"**2️⃣ Hướng giải pháp đề xuất:** *{sol_text}*")
             st.markdown(f"**3️⃣ Xu hướng vận hành tiếp theo:** {trend_msg}")
-            
             st.markdown("<p style='color: #0088cc; font-size: 12px; font-style: italic; margin-top: 5px;'>🚀 Tin nhắn bảo mật 3 dòng đang được gửi tự động và đồng bộ ngầm về Telegram của bạn!</p>", unsafe_allow_html=True)
 
-    # --- BỘ LỌC LƯU TRỮ TRUNG TÂM ---
+    # --- BỘ LỌC LƯU TRỮ ---
     if len(st.session_state.history) > 0:
         st.write("")
         with st.container(border=True):
@@ -365,14 +362,14 @@ def vpd_controlled_monitor():
             df_all_records = pd.DataFrame(st.session_state.history)
             df_filtered = df_all_records[df_all_records["Ngày"] == selected_view_day].iloc[::-1].copy()
 
-        # --- CONTAINER 5: BÁO CÁO PHÂN TÍCH THEO BUỔI CỦA NGÀY ĐƯỢC CHỌN ---
+        # --- BÁO CÁO PHÂN TÍCH BUỔI ---
         st.write("")
         with st.container(border=True):
             st.markdown(f"<p style='color: #2E7D32; font-size: 15px; font-weight: bold; margin-bottom: 2px;'>📊 TRẠM PHÂN TÍCH THEO BUỔI & ĐỀ XUẤT ĐIỀU HÀNH ({selected_view_day})</p>", unsafe_allow_html=True)
             rt_report_df = analyze_day_by_blocks_rt(st.session_state.history, vpd_min, vpd_max, selected_view_day)
             st.dataframe(rt_report_df, use_container_width=True, hide_index=True)
 
-        # --- CONTAINER 6: HỆ THỐNG BIỂU ĐỒ ĐÃ ĐƯỢC LỌC THEO NGÀY CHỌN ---
+        # --- BIỂU ĐỒ XU HƯỚNG CHU KỲ (X-axis cấu hình tự điều chỉnh theo mật độ 10 phút) ---
         st.write("")
         with st.container(border=True):
             st.markdown(f"<p style='color: gray; font-size: 14px; margin-bottom: 2px;'>📈 BIỂU ĐỒ XU HƯỚNG THEO CHU KỲ - LỌC: {selected_view_day}</p>", unsafe_allow_html=True)
@@ -381,7 +378,7 @@ def vpd_controlled_monitor():
             
             with tab_temp:
                 chart_temp = alt.Chart(df_filtered).mark_line(color="#FF4B4B", point=True).encode(
-                    x=alt.X('Hiển thị Giờ:O', axis=alt.Axis(title="Mốc thời gian", labelAngle=0)), 
+                    x=alt.X('Hiển thị Giờ:O', axis=alt.Axis(title="Mốc thời gian", labelAngle=-45)), 
                     y=alt.Y("Nhiệt độ (°C):Q", scale=alt.Scale(zero=False), axis=alt.Axis(title="Nhiệt độ (°C)")),
                     tooltip=['Ngày', 'Hiển thị Giờ', "Nhiệt độ (°C)"]
                 ).properties(height=260).interactive()
@@ -389,7 +386,7 @@ def vpd_controlled_monitor():
                 
             with tab_rh:
                 chart_rh = alt.Chart(df_filtered).mark_line(color="#0068C9", point=True).encode(
-                    x=alt.X('Hiển thị Giờ:O', axis=alt.Axis(title="Mốc thời gian", labelAngle=0)),
+                    x=alt.X('Hiển thị Giờ:O', axis=alt.Axis(title="Mốc thời gian", labelAngle=-45)),
                     y=alt.Y("Độ ẩm (%):Q", scale=alt.Scale(zero=False), axis=alt.Axis(title="Độ ẩm (%)")),
                     tooltip=['Ngày', 'Hiển thị Giờ', "Độ ẩm (%)"]
                 ).properties(height=260).interactive()
@@ -408,7 +405,7 @@ def vpd_controlled_monitor():
                     y2=alt.Y2('end_red:Q')
                 )
                 line_vpd = alt.Chart(df_filtered).mark_line(color="#2E7D32", point=True).encode(
-                    x=alt.X('Hiển thị Giờ:O', axis=alt.Axis(title="Mốc thời gian", labelAngle=0)),
+                    x=alt.X('Hiển thị Giờ:O', axis=alt.Axis(title="Mốc thời gian", labelAngle=-45)),
                     y=alt.Y('VPD (kPa):Q', scale=alt.Scale(domain=[0, 3.0]), axis=alt.Axis(title="Chỉ số VPD (kPa)", grid=True)),
                     tooltip=['Ngày', 'Hiển thị Giờ', 'VPD (kPa)', 'Trạng thái']
                 ).interactive() 
@@ -419,7 +416,7 @@ def vpd_controlled_monitor():
             with tab_combined:
                 st.caption("🔴 Đường Đỏ: Nhiệt độ (°C) | 🔵 Đường Xanh dương: Độ ẩm (%) [Trục Trái] --- 🟢 Đường Xanh lá: VPD (kPa) [Trục Phải]")
                 base = alt.Chart(df_filtered).encode(
-                    x=alt.X('Hiển thị Giờ:O', axis=alt.Axis(title="Mốc thời gian", labelAngle=0))
+                    x=alt.X('Hiển thị Giờ:O', axis=alt.Axis(title="Mốc thời gian", labelAngle=-45))
                 )
                 line_t = base.mark_line(color='#FF4B4B', strokeDash=[3,3], point=alt.OverlayMarkDef(color='#FF4B4B')).encode(
                     y=alt.Y("Nhiệt độ (°C):Q", axis=alt.Axis(title="Nhiệt độ (°C) / Độ ẩm (%)", titleColor='#0068C9')),
@@ -439,7 +436,7 @@ def vpd_controlled_monitor():
                 ).interactive()
                 st.altair_chart(combined_chart, use_container_width=True)
 
-        # --- CONTAINER 7: LỊCH SỬ BẢNG ĐÃ ĐƯỢC LỌC ---
+        # --- BẢNG LỊCH SỬ GHI NHẬN ---
         st.write("")
         with st.container(border=True):
             st.markdown(f"<p style='color: gray; font-size: 14px; margin-bottom: 10px;'>📋 BẢNG LỊCH SỬ GHI NHẬN - LỌC: {selected_view_day}</p>", unsafe_allow_html=True)
@@ -448,7 +445,7 @@ def vpd_controlled_monitor():
             df_display = df_display.drop(columns=["Hiển thị Giờ"])
             st.dataframe(df_display, use_container_width=True, hide_index=True)
 
-        # NÚT XÓA SẠCH DATABASE HỆ THỐNG
+        # NÚT XÓA DATABASE
         if st.button("🗑️ Khởi động lại hệ thống (Xóa toàn bộ dữ liệu lịch sử)", type="secondary"):
             st.session_state.stt_counter = 0
             st.session_state.temp = 0.0
