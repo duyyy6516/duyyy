@@ -105,13 +105,13 @@ def analyze_day_by_blocks_rt(history_list, vpd_min, vpd_max, target_date_str):
     return pd.DataFrame(summary)
 
 # --- HÀM DỰ BÁO XU HƯỚNG ---
-def predict_vpd_trend_v2(history, vpd_min, vpd_max):
-    if len(history) < 4:
-        return "🔄 Hệ thống đang tích lũy dữ liệu nhà kính để phân tích...", "info"
-    v0 = history[0]["VPD (kPa)"]
-    v1 = history[1]["VPD (kPa)"]
-    v2 = history[2]["VPD (kPa)"]
-    v3 = history[3]["VPD (kPa)"]
+def predict_vpd_trend_v3(filtered_history, vpd_min, vpd_max):
+    if len(filtered_history) < 4:
+        return "🔄 Hệ thống đang tích lũy thêm số liệu để tính xu hướng...", "info"
+    v0 = filtered_history[0]["VPD (kPa)"]
+    v1 = filtered_history[1]["VPD (kPa)"]
+    v2 = filtered_history[2]["VPD (kPa)"]
+    v3 = filtered_history[3]["VPD (kPa)"]
     ma_hien_tai = (v0 + v1) / 2
     ma_truoc_do = (v2 + v3) / 2
     is_trending_up = ma_hien_tai > ma_truoc_do
@@ -120,17 +120,17 @@ def predict_vpd_trend_v2(history, vpd_min, vpd_max):
     
     if vpd_min <= v0 <= vpd_max:
         if (v0 - vpd_min <= buffer) and is_trending_down:
-            return f"🔮 DỰ BÁO SỚM: Chỉ số VPD ({v0:.2f} kPa) đang tiến sát biên dưới. Môi trường SẮP QUÁ ẨM!", "warning"
+            return f"🔮 DỰ BÁO SỚM: Chỉ số VPD đang đi xuống tiến sát biên dưới. Môi trường SẮP QUÁ ẨM!", "warning"
         elif (vpd_max - v0 <= buffer) and is_trending_up:
-            return f"🔮 DỰ BÁO SỚM: Chỉ số VPD ({v0:.2f} kPa) đang tiến sát biên trên. Môi trường SẮP QUÁ KHÔ!", "error"
+            return f"🔮 DỰ BÁO SỚM: Chỉ số VPD đang đi lên tiến sát biên trên. Môi trường SẮP QUÁ KHÔ!", "error"
         else:
             hướng = "📈 xu hướng tăng" if is_trending_up else "📉 xu hướng giảm"
-            return f"🟢 Ổn định: Chỉ số đi theo {hướng} nhưng vẫn nằm an toàn.", "success"
+            return f"🔮 DỰ BÁO XU HƯỚNG: Chỉ số đi theo {hướng} nhưng vẫn nằm an toàn.", "success"
     else:
         if v0 < vpd_min:
-            return f"🚨 BÁO ĐỘNG: Nhà kính đang bị QUÁ ẨM ({v0:.2f} < {vpd_min} kPa)!", "warning"
+            return f"🔮 DỰ BÁO XU HƯỚNG: Hệ thống đang bị quá ẩm, cần xử lý thoát ẩm.", "warning"
         else:
-            return f"🚨 BÁO ĐỘNG: Nhà kính đang bị QUÁ KHÔ ({v0:.2f} > {vpd_max} kPa)!", "error"
+            return f"🔮 DỰ BÁO XU HƯỚNG: Hệ thống đang bị quá khô, cần bổ sung phun sương hạ nhiệt.", "error"
 
 # --- KHỞI TẠO BIẾN TRONG SESSION STATE ---
 if 'temp' not in st.session_state: st.session_state.temp = 0.0
@@ -147,11 +147,9 @@ if 'simulated_time' not in st.session_state:
 # --- HÀM TẠO LẬP NGÀY MỚI KHI BẤM CHẠY TIẾP ---
 def setup_next_day():
     current_dt = datetime.strptime(st.session_state.simulated_time, "%Y-%m-%d %H:%M:%S")
-    # Nếu mốc hiện tại đang ở 00:00 (vừa kết thúc ngày cũ), dời mốc lên thành 07:00 sáng cùng ngày đó để bắt đầu ngày mới
     if current_dt.hour == 0 and current_dt.minute == 0:
         next_day_dt = current_dt + timedelta(hours=7)
     else:
-        # Trường hợp đề phòng: cộng thêm 1 ngày
         next_day_dt = current_dt + timedelta(days=1)
         next_day_dt = next_day_dt.replace(hour=7, minute=0, second=0)
         
@@ -185,10 +183,9 @@ def trigger_new_data(vpd_min, vpd_max):
     
     next_sim_datetime = current_sim_datetime + timedelta(minutes=30)
     
-    # ĐIỀU KIỆN DỪNG: Kiểm tra nếu mốc tiếp theo chạm tới đúng 24h đêm (00:00 hôm sau)
     if next_sim_datetime.hour == 0 and next_sim_datetime.minute == 0:
-        st.session_state.is_running = False     # Dừng tự động phát số
-        st.session_state.is_completed = True   # Khóa trạng thái chờ kích hoạt ngày tiếp theo
+        st.session_state.is_running = False     
+        st.session_state.is_completed = True   
         st.session_state.simulated_time = next_sim_datetime.strftime("%Y-%m-%d %H:%M:%S")
     else:
         st.session_state.simulated_time = next_sim_datetime.strftime("%Y-%m-%d %H:%M:%S")
@@ -216,7 +213,6 @@ st.write("")
 with st.container(border=True):
     col_btn1, col_btn2 = st.columns(2)
     with col_btn1:
-        # LOGIC: Nếu ngày cũ vừa hoàn thành, ấn nút này sẽ thiết lập và chuyển thẳng sang ngày tiếp theo
         if st.button("""▶️ Bắt đầu chạy tự động""", type="primary", use_container_width=True, disabled=st.session_state.is_running):
             if st.session_state.is_completed:
                 setup_next_day()
@@ -258,32 +254,48 @@ def vpd_controlled_monitor():
         with col1: st.metric(label="🌡️ Nhiệt độ", value=f"{st.session_state.temp} °C" if st.session_state.stt_counter > 0 else "-- °C")
         with col2: st.metric(label="💧 Độ ẩm", value=f"{st.session_state.rh} %" if st.session_state.stt_counter > 0 else "-- %")
 
-    # --- CONTAINER 4: KẾT QUẢ VPD & DỰ BÁO XU HƯỚNG ---
+    # --- ĐỔI MỚI: CONTAINER 4 - HIỂN THỊ KẾT QUẢ VPD & XU HƯỚNG GỌN GÀNG THEO DÒNG ---
     vpd_result = calculate_vpd(st.session_state.temp, st.session_state.rh)
     st.write("")
     with st.container(border=True):
-        st.metric(label="Áp suất hơi thâm hụt (VPD)", value=f"{vpd_result:.2f} kPa" if st.session_state.stt_counter > 0 else "-- kPa")
-        if st.session_state.stt_counter > 0 and not st.session_state.is_completed:
-            trend_msg, msg_type = predict_vpd_trend_v2(st.session_state.history, vpd_min, vpd_max)
-            if msg_type == "warning": st.warning(trend_msg)
-            elif msg_type == "error": st.error(trend_msg)
-            elif msg_type == "success": st.success(trend_msg)
-            else: st.info(trend_msg)
-        elif st.session_state.is_completed:
-            st.info("📊 Ngày cũ đã đóng sổ. Chọn ngày cần xem ở Bộ lọc lưu trữ bên dưới để tra cứu.")
+        st.markdown("<p style='color: #2E7D32; font-size: 16px; font-weight: bold; margin-bottom: 8px;'>🎯 THEO DÕI CHỈ SỐ VPD & XU HƯỚNG HỆ THỐNG</p>", unsafe_allow_html=True)
+        
+        if st.session_state.stt_counter == 0:
+            st.info("📊 Đang chờ hệ thống bắt đầu kích hoạt phát số...")
+        else:
+            # Xác định trạng thái chữ và màu sắc đi kèm
+            if vpd_result < vpd_min:
+                status_lbl = "🟦 QUÁ ẨM"
+                text_color = "#0068C9"
+            elif vpd_min <= vpd_result <= vpd_max:
+                status_lbl = "🟩 LÝ TƯỞNG"
+                text_color = "#2E7D32"
+            else:
+                status_lbl = "🟥 QUÁ KHÔ"
+                text_color = "#FF4B4B"
+                
+            # DÒNG 1: Ghi nhận chỉ số và trạng thái khô/ẩm
+            st.markdown(f"**🔹 Chỉ số hiện tại:** <span style='font-size: 18px; color: {text_color}; font-weight: bold;'>{vpd_result:.2f} kPa</span> —— Trạng thái: **{status_lbl}**", unsafe_allow_html=True)
+            
+            # Khởi tạo dữ liệu phục vụ bộ lọc
+            unique_days = sorted(list(set([r["Ngày"] for r in st.session_state.history])), reverse=True)
+            latest_day_in_db = unique_days[0] if unique_days else current_date_display
+            history_of_latest_day = [r for r in st.session_state.history if r["Ngày"] == latest_day_in_db]
+            
+            # DÒNG 2: Dự báo xu hướng ngay bên dưới dòng 1
+            trend_msg, msg_type = predict_vpd_trend_v3(history_of_latest_day, vpd_min, vpd_max)
+            st.markdown(f"**🔹 Phân tích:** {trend_msg}")
 
-    # --- BỘ LỌC LƯU TRỮ TRUNG TÂM (CHỌN NGÀY NÀO CHỈ HIỆN SỐ LIỆU NGÀY ĐÓ) ---
+    # --- BỘ LỌC LƯU TRỮ TRUNG TÂM ---
     if len(st.session_state.history) > 0:
         st.write("")
         with st.container(border=True):
             st.markdown("<p style='color: #2E7D32; font-size: 16px; font-weight: bold; margin-bottom: 2px;'>🗂️ BỘ LỌC LƯU TRỮ LỊCH SỬ NHÀ KÍNH</p>", unsafe_allow_html=True)
-            # Lấy danh sách tất cả các ngày đã chạy, xếp ngày mới nhất lên đầu
             unique_days = sorted(list(set([r["Ngày"] for r in st.session_state.history])), reverse=True)
-            selected_view_day = st.selectbox("Chọn ngày lịch sử cần kiểm tra (Biểu đồ và Bảng sẽ lọc theo ngày này):", unique_days)
+            selected_view_day = st.selectbox("Chọn ngày lịch sử cần kiểm tra (Biểu đồ và Bảng số liệu sẽ đồng bộ theo ngày này):", unique_days)
             
-            # Tiến hành lọc dữ liệu của ngày được chọn
-            df_all = pd.DataFrame(st.session_state.history)
-            df_filtered = df_all[df_all["Ngày"] == selected_view_day].iloc[::-1].copy()
+            df_all_records = pd.DataFrame(st.session_state.history)
+            df_filtered = df_all_records[df_all_records["Ngày"] == selected_view_day].iloc[::-1].copy()
 
         # --- CONTAINER 5: BÁO CÁO PHÂN TÍCH THEO BUỔI CỦA NGÀY ĐƯỢC CHỌN ---
         st.write("")
@@ -372,13 +384,13 @@ def vpd_controlled_monitor():
         st.write("")
         with st.container(border=True):
             st.markdown(f"<p style='color: gray; font-size: 14px; margin-bottom: 10px;'>📋 BẢNG LỊCH SỬ GHI NHẬN - LỌC: {selected_view_day}</p>", unsafe_allow_html=True)
-            df_display = df_filtered.iloc[::-1].copy() # Đảo dòng mới nhất lên đầu bảng cho dễ xem
+            df_display = df_filtered.iloc[::-1].copy() 
             df_display["Thời gian mô phỏng"] = df_display["Hiển thị Giờ"]
             df_display = df_display.drop(columns=["Hiển thị Giờ"])
             st.dataframe(df_display, use_container_width=True, hide_index=True)
 
-        # NÚT XÓA SẠCH TOÀN BỘ DATABASE HỆ THỐNG
-        if st.button("""🗑️ Khởi động lại hệ thống (Xóa toàn bộ các ngày)""", type="secondary"):
+        # NÚT XÓA SẠCH DATABASE HỆ THỐNG
+        if st.button("""🗑️ Khởi động lại hệ thống (Xóa toàn bộ dữ liệu lịch sử)""", type="secondary"):
             st.session_state.stt_counter = 0
             st.session_state.temp = 0.0
             st.session_state.rh = 0.0
