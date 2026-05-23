@@ -4,44 +4,44 @@ import numpy as np
 import paho.mqtt.client as mqtt
 import requests
 import json
-import random  
+import random
+import queue
 import streamlit.components.v1 as components
 import plotly.express as px
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
 
 # =====================================================================
-# CẤU HÌNH GIAO DIỆN DI ĐỘNG
+# CẤU HÌNH GIAO DIỆN DI ĐỘNG & BẢO MẬT
 # =====================================================================
 st.set_page_config(page_title="Hệ Thống Quét Điều Khiển", page_icon="🚨", layout="centered")
 
 st.title("🚨 Giám Sát Real-Time Quét Vòng 5 Trạm")
 st.markdown("Mô phỏng: **Mỗi trạm gửi cách nhau 150s, các trạm lệch pha nhau đúng 30s**.")
 
-# --- CẤU HÌNH THÔNG TIN KẾT NỐI (BOT CHẠY 1 MÌNH) ---
+# --- CẤU HÌNH THÔNG TIN KẾT NỐI ---
 MQTT_BROKER = "broker.hivemq.com"
 MQTT_PORT = 1883
 MQTT_TOPIC = "vuon_thong_minh/duy_tran/sensors"
-TELEGRAM_TOKEN = "8924137204:AAGcMCbi6xfxb5LN3KaB1t69YFXc0MjadWk"   
-TELEGRAM_CHAT_ID = "7290661009"                                       
+
+# ⚠️ THAY THẾ BẰNG TOKEN CỦA BẠN - KHÔNG SHARE PUBLIC CODE CÓ TOKEN
+TELEGRAM_TOKEN = "YOUR_TELEGRAM_TOKEN"   
+TELEGRAM_CHAT_ID = "YOUR_CHAT_ID"                                       
+
+# Hàng đợi (Queue) giúp truyền dữ liệu an toàn từ luồng MQTT sang luồng Streamlit
+if "mqtt_queue" not in st.session_state:
+    st.session_state.mqtt_queue = queue.Queue()
 
 # --- KHỞI TẠO STATE ---
 if "mqtt_df" not in st.session_state:
     st.session_state.mqtt_df = pd.DataFrame()
-
-# Trạng thái hoạt động của bộ giả lập (Mặc định là chạy tự động)
 if "is_running" not in st.session_state:
     st.session_state.is_running = True
-
-# Biến lưu vết trạm nào sẽ gửi ở giây thứ mấy
 if "current_station_index" not in st.session_state:
     st.session_state.current_station_index = 0
-
-# Biến dùng để kiểm tra nhịp tránh lặp dữ liệu khi tương tác giao diện
 if "last_processed_idx" not in st.session_state:
     st.session_state.last_processed_idx = -1
 
-# Danh sách 5 trạm trong hệ thống vườn
 STATIONS_LIST = ["1", "2", "3", "4", "5"]
 
 # =====================================================================
@@ -73,11 +73,10 @@ else:
     st.warning("⏸️ Hệ thống đang: **TẠM DỪNG QUÉT** (Đang giữ nguyên thông số hiển thị và CHẶN tin nhắn)")
 
 # =====================================================================
-# CẤU HÌNH THANH TRƯỢT NGƯỠNG ĐỘNG & TỰ ĐỘNG CHỈNH THEO CÂY
+# CẤU HÌNH THANH TRƯỢT NGƯỠNG ĐỘNG
 # =====================================================================
 st.subheader("⚙️ Cài Đặt Ngưỡng VPD")
 
-# Từ điển lưu trữ vùng cận tối ưu cho các loại cây nhà kính tại Đà Lạt
 PLANT_PRESETS = {
     "Tự tùy chỉnh (Kéo tay)": None,
     "🥒 Dưa leo (Nhà kính)": (0.70, 1.30),
@@ -88,20 +87,17 @@ PLANT_PRESETS = {
     "🌹 Hoa hồng cắt cành": (0.80, 1.20)
 }
 
-# Khởi tạo giá trị mặc định cho thanh trượt trong session_state nếu chưa có
 if "slider_low" not in st.session_state:
     st.session_state.slider_low = 0.45
 if "slider_high" not in st.session_state:
     st.session_state.slider_high = 1.70
 
-# Hàm tự động cập nhật giá trị thanh trượt khi chọn cây
 def on_plant_change():
     selected_plant = st.session_state.plant_selector
     if selected_plant != "Tự tùy chỉnh (Kéo tay)":
         st.session_state.slider_low = PLANT_PRESETS[selected_plant][0]
         st.session_state.slider_high = PLANT_PRESETS[selected_plant][1]
 
-# Hộp chọn cấu hình nhanh loại cây trồng
 st.selectbox(
     "🌱 Cấu hình nhanh theo loại cây trồng:",
     options=list(PLANT_PRESETS.keys()),
@@ -109,79 +105,55 @@ st.selectbox(
     on_change=on_plant_change
 )
 
-# Hai thanh trượt chỉnh tay (Giá trị luôn đồng bộ linh hoạt với Selectbox)
-low_threshold = st.slider(
-    "1. Ngưỡng VPD Thấp (Quá ẩm):", 
-    min_value=0.1, max_value=1.5, 
-    step=0.05, format="%.2f kPa",
-    key="slider_low"
-)
+low_threshold = st.slider("1. Ngưỡng VPD Thấp (Quá ẩm):", min_value=0.1, max_value=1.5, step=0.05, format="%.2f kPa", key="slider_low")
+high_threshold = st.slider("2. Ngưỡng VPD Cao (Khô nóng):", min_value=1.0, max_value=3.0, step=0.05, format="%.2f kPa", key="slider_high")
 
-high_threshold = st.slider(
-    "2. Ngưỡng VPD Cao (Khô nóng):", 
-    min_value=1.0, max_value=3.0, 
-    step=0.05, format="%.2f kPa",
-    key="slider_high"
-)
-
-# Đồng bộ dữ liệu xuống biến toàn cục để hệ thống xử lý logic bên dưới nhận diện đúng
 st.session_state.low_threshold = low_threshold
 st.session_state.high_threshold = high_threshold
 
 # =====================================================================
-# LOGIC TOÁN HỌC VÀ ĐÁNH GIÁ TRẠNG THÁI (ĐÃ TÍCH HỢP BÁO ĐỘNG SỚM)
+# LOGIC TOÁN HỌC VÀ ĐÁNH GIÁ TRẠNG THÁI
 # =====================================================================
-
 def calculate_vpd(temp, humi):
     vp_sat = 0.61078 * np.exp((17.27 * temp) / (temp + 237.3))
     return float(np.clip(vp_sat * (1 - (humi / 100)), 0, None))
 
 def send_telegram_auto(message):
+    if TELEGRAM_TOKEN == "YOUR_TELEGRAM_TOKEN":
+        return # Bỏ qua nếu chưa cấu hình Token
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     try: 
         requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"}, timeout=2)
-    except: 
-        pass
+    except Exception as e: 
+        print(f"Telegram Error: {e}")
 
 def evaluate_status(vpd, temp, humi, station_id, low_t, high_t):
     sid = str(station_id)
-    
-    # 1. Các trạng thái lỗi thiết bị hoặc bão hòa cực đoan (Bắt buộc check trước)
     if humi == 0:
         return "🔌 Mất tín hiệu thiết bị", f"Trạm {sid} báo độ ẩm bằng 0%.", "Kiểm tra lại dây nguồn, giắc nối đầu dò."
-    
     if vpd > high_t and temp > 40.0 and humi < 40.0:
         return "🔥 BÁO ĐỘNG: KHÔ NÓNG GẮT", f"Trạm {sid} vượt ngưỡng khô gắt cài đặt ({vpd} kPa).", "CHẠY RA KÉO LƯỚI LAN ĐEN CẤT NẮNG, BẬT PHUN SƯƠNG BÙ ẨM KHẨN CẤP!"
-        
     if humi >= 99.5 or vpd == 0:
         return "⚠️ THÔNG BÁO: BÃO HÒA ẨM", f"Trạm {sid} báo độ ẩm chạm trần {humi}%.", "Bật ngay quạt hút đuổi ẩm và ngừng tưới nước ngay!"
 
-    # 2. Ngưỡng lỗi thực tế (Vượt hẳn ra ngoài ranh giới cài đặt)
     if vpd < low_t:
         return "❌ Nhà kính quá ẩm", f"VPD thấp hơn mốc cài đặt ({vpd} < {low_t} kPa).", "Bật quạt đối lưu mạnh, mở rộng cửa hông để thoát hơi ẩm."
-        
     elif vpd > high_t:
         if humi < 40.0:
             return "❌ Môi trường khô hanh", f"VPD vượt ngưỡng cao ({vpd} kPa) do thiếu ẩm.", "Bật hệ thống phun sương giữa vườn để bù lại độ ẩm."
         else:
             return "❌ Nhiệt độ tăng cao", f"Nhiệt độ nhà màng hầm nóng ({temp}°C) làm đẩy VPD lên {vpd} kPa.", "Tăng thời gian tưới nhỏ giọt dưới gốc cấp nước cho rễ."
 
-    # 3. VÙNG ĐỆM: Các khoảng CẢNH BÁO SỚM khi gần chạm ngưỡng (Biên độ 0.1 kPa)
     elif low_t <= vpd < (low_t + 0.1):
         return "⚠️ CẢNH BÁO SỚM: SẮP QUÁ ẨM", f"VPD tiến sát mốc dưới ({vpd} kPa). Độ ẩm đang tăng nhanh.", "Nên tăng nhẹ nhiệt độ phòng hoặc bật quạt đối lưu để kéo VPD lên."
-        
     elif (high_t - 0.1) <= vpd <= high_t:
         return "⚠️ CẢNH BÁO SỚM: SẮP KHÔ NÓNG", f"VPD tiến sát mốc trên ({vpd} kPa). Môi trường đang khô dần.", "Nên tăng độ ẩm (phun sương nhẹ) hoặc kéo lưới lan giảm nhiệt độ phòng."
 
-    # 4. Khoảng an toàn tuyệt đối nằm giữa
     else:
         return "Môi trường hoàn hảo lý tưởng", f"VPD đạt điểm vàng quang hợp ({vpd} kPa).", "Thời điểm vàng để cây sinh trưởng tốt. Giữ nguyên chế độ vườn."
 
 def process_incoming_data(df_new):
-    if df_new.empty:
-        return
-
-    if "is_running" in st.session_state and not st.session_state.is_running:
+    if df_new.empty or not st.session_state.is_running:
         return
 
     low_t = st.session_state.low_threshold
@@ -234,9 +206,10 @@ def on_message(client, userdata, message):
         payload_str = message.payload.decode("utf-8")
         new_data = json.loads(payload_str)
         df_new = pd.DataFrame(new_data)
-        process_incoming_data(df_new)
-    except:
-        pass
+        # Đưa dữ liệu vào hàng đợi thay vì gọi trực tiếp session_state
+        st.session_state.mqtt_queue.put(df_new)
+    except Exception as e:
+        print(f"Lỗi giải mã MQTT: {e}")
 
 @st.cache_resource
 def start_mqtt_client():
@@ -248,6 +221,11 @@ def start_mqtt_client():
     return mqtt_client
 
 _ = start_mqtt_client()
+
+# Xử lý các tin nhắn MQTT đang chờ trong Queue
+while not st.session_state.mqtt_queue.empty():
+    incoming_df = st.session_state.mqtt_queue.get()
+    process_incoming_data(incoming_df)
 
 # =====================================================================
 # XỬ LÝ ĐIỀU PHỐI XUNG NHỊP CHUẨN THEO TICK AUTOREFRESH
@@ -298,7 +276,6 @@ if st.session_state.is_running and st.session_state.last_processed_idx != idx:
     st.session_state.last_processed_idx = idx
     st.session_state.current_station_index = (idx + 1) % len(STATIONS_LIST)
 
-
 # =====================================================================
 # BỘ ĐẾM NGƯỢC UI REALTIME
 # =====================================================================
@@ -325,7 +302,6 @@ if st.session_state.is_running:
     components.html(countdown_html, height=55)
 else:
     st.info("⏸️ **Bộ đếm thời gian tự động đang dừng.** Nhấn nút Bắt đầu phía trên để kích hoạt lại chu kỳ.")
-
 
 # =====================================================================
 # BIỂU DIỄN BẢNG DỮ LIỆU LÊN APP SCREEN
@@ -380,7 +356,6 @@ if processed_chunks:
     final_table = pd.concat(processed_chunks, ignore_index=True)
     st.dataframe(final_table, use_container_width=True)
 
-
 # =====================================================================
 # BIỂU ĐỒ TRỰC QUAN HÓA DỮ LIỆU (REAL-TIME CHARTS)
 # =====================================================================
@@ -392,7 +367,6 @@ if not chart_df.empty:
     chart_df['Thời gian'] = pd.to_datetime(chart_df['Thời gian'])
     chart_df = chart_df.sort_values('Thời gian')
     
-    # Tính toán lại VPD đồng loạt trên toàn bộ bảng dữ liệu phục vụ biểu đồ
     def apply_calc_vpd(row):
         t = pd.to_numeric(row['Nhiệt độ'])
         h = pd.to_numeric(row['Độ ẩm'])
@@ -403,7 +377,6 @@ if not chart_df.empty:
 
     chart_df['VPD (kPa)'] = chart_df.apply(apply_calc_vpd, axis=1)
     
-    # Chia giao diện biểu đồ làm 2 tab mượt mà
     tab1, tab2 = st.tabs(["🌡️ Nhiệt Độ", "💨 Chỉ số VPD"])
     
     with tab1:
@@ -421,7 +394,6 @@ if not chart_df.empty:
             title="Biến động Chỉ số VPD theo các Trạm",
             labels={"VPD (kPa)": "VPD (kPa)", "STT": "Trạm"}
         )
-        # Đường nét đứt động phản hồi theo thanh Slider thời gian thực
         fig_vpd.add_hline(y=low_threshold, line_dash="dash", line_color="blue", annotation_text="Ngưỡng quá ẩm")
         fig_vpd.add_hline(y=high_threshold, line_dash="dash", line_color="red", annotation_text="Ngưỡng khô nóng")
         
