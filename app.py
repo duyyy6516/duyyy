@@ -5,10 +5,10 @@ from datetime import datetime
 import pandas as pd
 
 # Cấu hình trang web Streamlit
-st.set_page_config(page_title="Hệ thống giám sát VPD", page_icon="🌿", layout="centered")
+st.set_page_config(page_title="Hệ thống giám sát VPD Đà Lạt", page_icon="🌿", layout="centered")
 
 # --- TIÊU ĐỀ CHÍNH ---
-st.markdown("<h2 style='text-align: center; color: #2E7D32;'>🌿 HỆ THỐNG GIÁM SÁT & TÍNH TOÁN VPD</h2>", unsafe_allow_html=True)
+st.markdown("<h2 style='text-align: center; color: #2E7D32;'>🌿 HỆ THỐNG GIÁM SÁT & TÍNH TOÁN VPD ĐÀ LẠT</h2>", unsafe_allow_html=True)
 st.write("")
 
 # --- CÔNG THỨC TÍNH VPD ---
@@ -70,26 +70,46 @@ def trigger_new_data():
     }
     st.session_state.history.insert(0, new_record)
 
-# --- CONTAINER 1: CẤU HÌNH KHOẢNG VPD TỐI ƯU ---
+# --- CONTAINER 1: CẤU HÌNH THEO CÂY TRỒNG ĐÀ LẠT ---
 with st.container(border=True):
-    st.markdown("<p style='color: #2E7D32; font-size: 15px; font-weight: bold; margin-bottom: 2px;'>⚙️ CẤU HÌNH NGƯỠNG VPD TỐI ƯU CHO CÂY TRỒNG</p>", unsafe_allow_html=True)
+    st.markdown("<p style='color: #2E7D32; font-size: 15px; font-weight: bold; margin-bottom: 2px;'>⚙️ CẤU HÌNH NGƯỠNG VPD THEO CÂY TRỒNG ĐÀ LẠT</p>", unsafe_allow_html=True)
     
-    # THAY ĐỔI QUAN TRỌNG: Thêm tham số disabled=st.session_state.is_running 
-    # Khi hệ thống đang hoạt động, slider sẽ bị khóa lại không cho chỉnh sửa
+    # Menu chọn loại cây trồng (Khóa khi hệ thống đang chạy)
+    plant_option = st.selectbox(
+        "Chọn loại cây trồng đang canh tác:",
+        ["🍓 Dâu tây Đà Lạt", "🌹 Hoa hồng nhà kính", "🌼 Hoa cúc / Hoa đồng tiền", "🍅 Cà chua bi / 🫑 Ớt chuông", "🛠️ Tùy chỉnh thủ công"],
+        disabled=st.session_state.is_running
+    )
+    
+    # Thiết lập giá trị mặc định dựa vào loại cây được chọn
+    if plant_option == "🍓 Dâu tây Đà Lạt":
+        default_range = (0.6, 1.0) # Dâu tây ưa mát ẩm nhẹ, VPD lý tưởng thấp hơn để tránh cháy lá
+    elif plant_option == "🌹 Hoa hồng nhà kính":
+        default_range = (0.8, 1.2) # Hoa hồng tiêu chuẩn phòng dịch bệnh
+    elif plant_option == "🌼 Hoa cúc / Hoa đồng tiền":
+        default_range = (0.7, 1.1)
+    elif plant_option == "🍅 Cà chua bi / 🫑 Ớt chuông":
+        default_range = (0.8, 1.4) # Cây họ cà chịu được khoảng VPD rộng và hơi khô hơn
+    else:
+        default_range = (0.8, 1.2) # Mặc định cho tùy chỉnh thủ công
+
+    # Thanh trượt cấu hình khoảng VPD mong muốn
     vpd_range = st.slider(
-        "Kéo chọn khoảng VPD mong muốn (kPa):",
+        "Khoảng VPD tối ưu (kPa):",
         min_value=0.0,
         max_value=3.0,
-        value=(0.8, 1.2),
+        value=default_range,
         step=0.1,
-        disabled=st.session_state.is_running
+        disabled=st.session_state.is_running or (plant_option != "🛠️ Tùy chỉnh thủ công")
     )
     vpd_min, vpd_max = vpd_range
     
     if st.session_state.is_running:
-        st.caption("🔒 *Thanh trượt đã bị khóa vì hệ thống đang chạy. Hãy bấm Tạm dừng nếu muốn điều chỉnh ngưỡng.*")
+        st.caption("🔒 *Đã khóa cấu hình vì hệ thống đang chạy. Bấm Tạm dừng để chỉnh sửa.*")
+    elif plant_option != "🛠️ Tùy chỉnh thủ công":
+        st.caption(f"ℹ️ *Đang áp dụng ngưỡng tự động của **{plant_option}**: {vpd_min} - {vpd_max} kPa. Muốn tự kéo hãy chọn 'Tùy chỉnh thủ công'.*")
     else:
-        st.caption(f"🔓 Ngưỡng hiện tại: Thấp hơn **{vpd_min} kPa** là Quá ẩm | Từ **{vpd_min} - {vpd_max} kPa** là Lý tưởng | Cao hơn **{vpd_max} kPa** là Quá khô.")
+        st.caption(f"🔓 Chế độ thủ công: Thấp hơn {vpd_min} kPa (Quá ẩm) | {vpd_min}-{vpd_max} kPa (Lý tưởng) | Cao hơn {vpd_max} kPa (Quá khô).")
 
 st.write("")
 
@@ -121,7 +141,7 @@ def vpd_controlled_monitor():
         st.write(f"⏳ Tự động đổi số sau: **{st.session_state.countdown}** giây")
         st.progress(st.session_state.countdown / 30)
     else:
-        st.info("💡 Hệ thống đang tạm dừng. Ngưỡng cấu hình đã mở khóa, bạn có thể tự do điều chỉnh.")
+        st.info("💡 Hệ thống đang tạm dừng. Bạn có thể thay đổi loại cây trồng hoặc ngưỡng cấu hình phía trên.")
 
     # --- CONTAINER 3: THÔNG SỐ HIỆN TẠI ---
     st.write("")
@@ -143,19 +163,19 @@ def vpd_controlled_monitor():
         st.metric(label="Áp suất hơi thâm hụt (Vapor Pressure Deficit)", value=f"{vpd_result:.2f} kPa" if st.session_state.stt_counter > 0 else "-- kPa")
         
         if st.session_state.stt_counter > 0:
-            st.markdown("**🔍 Đánh giá theo cấu hình riêng & Giải pháp:**")
+            st.markdown(f"**🔍 Đánh giá trạng thái phù hợp cho [{plant_option}]:**")
             
             if vpd_result < vpd_min:
-                st.warning(f"⚠️ **VPD đang thấp hơn ngưỡng tối ưu ({vpd_result:.2f} < {vpd_min} kPa):** Môi trường đang quá ẩm.")
-                st.info("💡 **Giải pháp:** Bật quạt thông gió để tăng lưu thông khí, bật máy hút ẩm hoặc tăng nhẹ nhiệt độ phòng nuôi.")
+                st.warning(f"⚠️ **VPD đang thấp hơn ngưỡng tối ưu ({vpd_result:.2f} < {vpd_min} kPa):** Môi trường đang quá ẩm đối với {plant_option}.")
+                st.info("💡 **Giải pháp:** Bật quạt lưu thông khí trong nhà kính, kích hoạt máy hút ẩm hoặc tăng nhiệt độ bằng hệ thống đèn sưởi.")
                 
             elif vpd_min <= vpd_result <= vpd_max:
-                st.success(f"✅ **VPD nằm trong khoảng lý tưởng ({vpd_min} ≤ {vpd_result:.2f} ≤ {vpd_max} kPa):** Môi trường hoàn hảo cho cây phát triển tối ưu theo cấu hình của bạn.")
-                st.info("💡 **Giải pháp:** Duy trì hệ thống tưới, che nắng và quạt thông gió ở trạng thái hiện tại.")
+                st.success(f"✅ **VPD nằm trong khoảng lý tưởng ({vpd_min} ≤ {vpd_result:.2f} ≤ {vpd_max} kPa):** Môi trường hoàn hảo! Khí khổng mở tối ưu giúp hấp thụ dinh dưỡng tốt nhất.")
+                st.info("💡 **Giải pháp:** Duy trì hệ thống tự động ở trạng thái ổn định hiện tại.")
                 
             else:
-                st.error(f"🚨 **VPD đang cao hơn ngưỡng tối ưu ({vpd_result:.2f} > {vpd_max} kPa):** Môi trường đang quá khô.")
-                st.info("💡 **Giải pháp:** Kích hoạt ngay hệ thống phun sương làm mát, kéo rèm giảm bớt nắng và tăng lưu lượng nước tưới gốc.")
+                st.error(f"🚨 **VPD đang cao hơn ngưỡng tối ưu ({vpd_result:.2f} > {vpd_max} kPa):** Môi trường đang quá khô, nguy cơ héo rũ tế bào.")
+                st.info("💡 **Giải pháp:** Bật ngay hệ thống phun sương mịn làm mát, kéo lưới cắt nắng (rèm che) và tăng nhẹ lượng nước nhỏ giọt tại gốc.")
         else:
             st.write("Chờ hệ thống kích hoạt...")
 
