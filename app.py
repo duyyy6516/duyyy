@@ -6,6 +6,7 @@ import requests
 import json
 import random  
 import streamlit.components.v1 as components
+import plotly.express as px
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
 
@@ -22,7 +23,7 @@ MQTT_BROKER = "broker.hivemq.com"
 MQTT_PORT = 1883
 MQTT_TOPIC = "vuon_thong_minh/duy_tran/sensors"
 TELEGRAM_TOKEN = "8924137204:AAGcMCbi6xfxb5LN3KaB1t69YFXc0MjadWk"   
-TELEGRAM_CHAT_ID = "7290661009"                                      
+TELEGRAM_CHAT_ID = "7290661009"                                       
 
 # --- KHỞI TẠO STATE ---
 if "mqtt_df" not in st.session_state:
@@ -72,12 +73,58 @@ else:
     st.warning("⏸️ Hệ thống đang: **TẠM DỪNG QUÉT** (Đang giữ nguyên thông số hiển thị và CHẶN tin nhắn)")
 
 # =====================================================================
-# CẤU HÌNH THANH TRƯỢT NGƯỠNG ĐỘNG
+# CẤU HÌNH THANH TRƯỢT NGƯỠNG ĐỘNG & TỰ ĐỘNG CHỈNH THEO CÂY
 # =====================================================================
 st.subheader("⚙️ Cài Đặt Ngưỡng VPD")
-low_threshold = st.slider("1. Ngưỡng VPD Thấp (Quá ẩm):", min_value=0.1, max_value=1.0, value=0.45, step=0.05, format="%.2f kPa")
-high_threshold = st.slider("2. Ngưỡng VPD Cao (Khô nóng):", min_value=1.0, max_value=3.0, value=1.70, step=0.05, format="%.2f kPa")
 
+# Từ điển lưu trữ vùng cận tối ưu cho các loại cây nhà kính tại Đà Lạt
+PLANT_PRESETS = {
+    "Tự tùy chỉnh (Kéo tay)": None,
+    "🥒 Dưa leo (Nhà kính)": (0.70, 1.30),
+    "🍓 Dâu tây (New Zealand, Nhật)": (0.40, 0.80),
+    "🍅 Cà chua (Beef, Cherry)": (0.60, 1.20),
+    "🫑 Ớt chuông": (0.50, 1.00),
+    "🥬 Rau ăn lá (Xà lách)": (0.40, 0.85),
+    "🌹 Hoa hồng cắt cành": (0.80, 1.20)
+}
+
+# Khởi tạo giá trị mặc định cho thanh trượt trong session_state nếu chưa có
+if "slider_low" not in st.session_state:
+    st.session_state.slider_low = 0.45
+if "slider_high" not in st.session_state:
+    st.session_state.slider_high = 1.70
+
+# Hàm tự động cập nhật giá trị thanh trượt khi chọn cây
+def on_plant_change():
+    selected_plant = st.session_state.plant_selector
+    if selected_plant != "Tự tùy chỉnh (Kéo tay)":
+        st.session_state.slider_low = PLANT_PRESETS[selected_plant][0]
+        st.session_state.slider_high = PLANT_PRESETS[selected_plant][1]
+
+# Hộp chọn cấu hình nhanh loại cây trồng
+st.selectbox(
+    "🌱 Cấu hình nhanh theo loại cây trồng:",
+    options=list(PLANT_PRESETS.keys()),
+    key="plant_selector",
+    on_change=on_plant_change
+)
+
+# Hai thanh trượt chỉnh tay (Giá trị luôn đồng bộ linh hoạt với Selectbox)
+low_threshold = st.slider(
+    "1. Ngưỡng VPD Thấp (Quá ẩm):", 
+    min_value=0.1, max_value=1.5, 
+    step=0.05, format="%.2f kPa",
+    key="slider_low"
+)
+
+high_threshold = st.slider(
+    "2. Ngưỡng VPD Cao (Khô nóng):", 
+    min_value=1.0, max_value=3.0, 
+    step=0.05, format="%.2f kPa",
+    key="slider_high"
+)
+
+# Đồng bộ dữ liệu xuống biến toàn cục để hệ thống xử lý logic bên dưới nhận diện đúng
 st.session_state.low_threshold = low_threshold
 st.session_state.high_threshold = high_threshold
 
@@ -316,7 +363,6 @@ for station_id in STATIONS_LIST:
     
     vpd_val = round(calculate_vpd(t_val, h_val), 3)
     
-    # Đồng bộ giá trị thanh trượt trực tiếp xuống bảng vẽ
     status, reason, action = evaluate_status(vpd_val, t_val, h_val, station_id, low_threshold, high_threshold)
     
     processed_chunks.append(pd.DataFrame([{
@@ -333,3 +379,53 @@ for station_id in STATIONS_LIST:
 if processed_chunks:
     final_table = pd.concat(processed_chunks, ignore_index=True)
     st.dataframe(final_table, use_container_width=True)
+
+
+# =====================================================================
+# BIỂU ĐỒ TRỰC QUAN HÓA DỮ LIỆU (REAL-TIME CHARTS)
+# =====================================================================
+st.subheader("📈 Biểu Đồ Giám Sát Thời Gian Thực")
+
+chart_df = st.session_state.mqtt_df.copy()
+
+if not chart_df.empty:
+    chart_df['Thời gian'] = pd.to_datetime(chart_df['Thời gian'])
+    chart_df = chart_df.sort_values('Thời gian')
+    
+    # Tính toán lại VPD đồng loạt trên toàn bộ bảng dữ liệu phục vụ biểu đồ
+    def apply_calc_vpd(row):
+        t = pd.to_numeric(row['Nhiệt độ'])
+        h = pd.to_numeric(row['Độ ẩm'])
+        stt = str(row['STT'])
+        if stt != "5" and t > 100: t /= 10.0
+        if stt != "5" and h > 100: h /= 10.0
+        return round(calculate_vpd(t, h), 3)
+
+    chart_df['VPD (kPa)'] = chart_df.apply(apply_calc_vpd, axis=1)
+    
+    # Chia giao diện biểu đồ làm 2 tab mượt mà
+    tab1, tab2 = st.tabs(["🌡️ Nhiệt Độ", "💨 Chỉ số VPD"])
+    
+    with tab1:
+        fig_temp = px.line(
+            chart_df, x="Thời gian", y="Nhiệt độ", color="STT", markers=True,
+            title="Biến động Nhiệt độ theo các Trạm",
+            labels={"Nhiệt độ": "Nhiệt độ (°C)", "STT": "Trạm"}
+        )
+        fig_temp.update_layout(xaxis_title="Thời gian", yaxis_title="Nhiệt độ (°C)", hovermode="x unified")
+        st.plotly_chart(fig_temp, use_container_width=True, key="chart_temp")
+
+    with tab2:
+        fig_vpd = px.line(
+            chart_df, x="Thời gian", y="VPD (kPa)", color="STT", markers=True,
+            title="Biến động Chỉ số VPD theo các Trạm",
+            labels={"VPD (kPa)": "VPD (kPa)", "STT": "Trạm"}
+        )
+        # Đường nét đứt động phản hồi theo thanh Slider thời gian thực
+        fig_vpd.add_hline(y=low_threshold, line_dash="dash", line_color="blue", annotation_text="Ngưỡng quá ẩm")
+        fig_vpd.add_hline(y=high_threshold, line_dash="dash", line_color="red", annotation_text="Ngưỡng khô nóng")
+        
+        fig_vpd.update_layout(xaxis_title="Thời gian", yaxis_title="VPD (kPa)", hovermode="x unified")
+        st.plotly_chart(fig_vpd, use_container_width=True, key="chart_vpd")
+else:
+    st.info("Đang chờ thu thập dữ liệu vòng quét để vẽ biểu đồ...")
