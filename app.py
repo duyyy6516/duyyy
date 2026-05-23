@@ -4,6 +4,7 @@ import math
 from datetime import datetime, timedelta
 import pandas as pd
 import altair as alt
+import requests
 
 # Cấu hình trang web Streamlit
 st.set_page_config(page_title="Hệ thống giám sát VPD Đà Lạt", page_icon="🌿", layout="centered")
@@ -11,6 +12,22 @@ st.set_page_config(page_title="Hệ thống giám sát VPD Đà Lạt", page_ico
 # --- TIÊU ĐỀ CHÍNH ---
 st.markdown("<h2 style='text-align: center; color: #2E7D32;'>🌿 HỆ THỐNG GIÁM SÁT & TÍNH TOÁN VPD ĐÀ LẠT</h2>", unsafe_allow_html=True)
 st.write("")
+
+# --- HÀM GỬI THÔNG BÁO QUA TELEGRAM BOT ---
+def send_telegram_message(token, chat_id, message):
+    if not token or not chat_id:
+        return False
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": message,
+        "parse_mode": "Markdown"
+    }
+    try:
+        response = requests.post(url, json=payload, timeout=5)
+        return response.status_code == 200
+    except Exception:
+        return False
 
 # --- CÔNG THỨC TÍNH VPD ---
 def calculate_vpd(temp, rh):
@@ -123,7 +140,6 @@ def predict_vpd_trend_v3(filtered_history, current_hour):
     if len(filtered_history) < 2:
         return "🔄 Hệ thống đang tích lũy số liệu mốc giờ để tính toán...", "info"
         
-    # Dự báo dựa trên quy luật bức xạ mặt trời tại Đà Lạt
     if 7 <= current_hour < 11:
         return "Nắng đang lên nhanh, bức xạ mặt trời tăng mạnh. Dự báo nhiệt độ tiếp tục tăng và độ ẩm sẽ giảm sâu trong các mốc giờ tới.", "warning"
     elif 11 <= current_hour < 14:
@@ -145,6 +161,33 @@ if 'stt_counter' not in st.session_state: st.session_state.stt_counter = 0
 if 'simulated_time' not in st.session_state:
     st.session_state.simulated_time = "2026-05-24 07:00:00"
 
+# --- THANH CẤU HÌNH SIDEBAR (CỘT TRÁI) ---
+with st.sidebar:
+    st.markdown("<h3 style='color: #2E7D32;'>⚙️ BẢN ĐIỀU KHIỂN CẤU HÌNH</h3>", unsafe_allow_html=True)
+    
+    plant_option = st.selectbox(
+        "Chọn loại cây trồng canh tác:",
+        ["🍓 Dâu tây Đà Lạt", "🌹 Hoa hồng nhà kính", "🌼 Hoa cúc / Hoa đồng tiền", "🍅 Cà chua bi / 🫑 Ớt chuông", "🛠️ Tùy chỉnh thủ công"],
+        disabled=st.session_state.is_running
+    )
+    if plant_option == "🍓 Dâu tây Đà Lạt": default_range = (0.6, 1.0)
+    elif plant_option == "🌹 Hoa hồng nhà kính": default_range = (0.8, 1.2)
+    elif plant_option == "🌼 Hoa cúc / Hoa đồng tiền": default_range = (0.7, 1.1)
+    elif plant_option == "🍅 Cà chua bi / 🫑 Ớt chuông": default_range = (0.8, 1.4)
+    else: default_range = (0.8, 1.2)
+
+    vpd_range = st.slider("Khoảng VPD tối ưu (kPa):", min_value=0.0, max_value=3.0, value=default_range, step=0.1, disabled=st.session_state.is_running or (plant_option != "🛠️ Tùy chỉnh thủ công"))
+    vpd_min, vpd_max = vpd_range
+
+    st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
+    st.markdown("<h4 style='color: #0088cc;'>🤖 KẾT NỐI TELEGRAM BOT</h4>", unsafe_allow_html=True)
+    
+    # Ghim sẵn thông tin cấu hình người dùng cung cấp vào làm giá trị mặc định (default value)
+    tele_token = st.text_input("Telegram Bot Token:", value="8924137204:AAGcMCbi6xfxb5LN3KaB1t69YFXc0MjadWk", type="password")
+    tele_chat_id = st.text_input("Telegram Chat ID:", value="8924137204")
+    
+    st.info("💡 Token và Chat ID đã được cấu hình mặc định. Bạn có thể bấm Start để hệ thống bắt đầu gửi tin nhắn.")
+
 # --- HÀM TẠO LẬP NGÀY MỚI KHI BẤM CHẠY TIẾP ---
 def setup_next_day():
     current_dt = datetime.strptime(st.session_state.simulated_time, "%Y-%m-%d %H:%M:%S")
@@ -158,8 +201,8 @@ def setup_next_day():
     st.session_state.is_completed = False
     st.session_state.countdown = 15
 
-# --- HÀM CẬP NHẬT DỮ LIỆU MỚI ---
-def trigger_new_data(vpd_min, vpd_max):
+# --- HÀM CẬP NHẬT DỮ LIỆU MỚI (TÍCH HỢP TỰ ĐỘNG BẮN TELEGRAM) ---
+def trigger_new_data(vpd_min, vpd_max, token, chat_id):
     current_sim_datetime = datetime.strptime(st.session_state.simulated_time, "%Y-%m-%d %H:%M:%S")
     current_date_str = current_sim_datetime.strftime("Ngày %d/%m")
     
@@ -168,7 +211,15 @@ def trigger_new_data(vpd_min, vpd_max):
     st.session_state.stt_counter += 1
     new_vpd = calculate_vpd(st.session_state.temp, st.session_state.rh)
     
-    status_text = "⚠️ Quá ẩm" if new_vpd < vpd_min else ("✅ Lý tưởng" if vpd_min <= new_vpd <= vpd_max else "🚨 Quá khô")
+    if new_vpd < vpd_min:
+        status_text = "⚠️ Quá ẩm"
+        tele_status = "🟦 QUÁ ẨM"
+    elif vpd_min <= new_vpd <= vpd_max:
+        status_text = "✅ Lý tưởng"
+        tele_status = "🟩 LÝ TƯỞNG"
+    else:
+        status_text = "🚨 Quá khô"
+        tele_status = "🟥 QUÁ KHÔ"
     
     new_record = {
         "STT": st.session_state.stt_counter,
@@ -182,6 +233,25 @@ def trigger_new_data(vpd_min, vpd_max):
     }
     st.session_state.history.insert(0, new_record)
     
+    # 📱 CHUẨN BỊ NỘI DUNG VÀ GỬI ĐI QUA TELEGRAM BOT
+    if token and chat_id:
+        sol = get_quick_solution(new_vpd, vpd_min, vpd_max, current_sim_datetime.hour)
+        unique_days = sorted(list(set([r["Ngày"] for r in st.session_state.history])), reverse=True)
+        latest_day_in_db = unique_days[0] if unique_days else current_date_str
+        history_of_latest_day = [r for r in st.session_state.history if r["Ngày"] == latest_day_in_db]
+        trend, _ = predict_vpd_trend_v3(history_of_latest_day, current_sim_datetime.hour)
+        
+        # Tạo tin nhắn đồng bộ chuẩn cấu trúc 3 dòng gọn gàng
+        telegram_msg = (
+            f"🌿 *HỆ THỐNG VPD ĐÀ LẠT REALTIME*\n"
+            f"⏰ Thời gian: {current_date_str} - {current_sim_datetime.strftime('%H:%M')}\n"
+            f"📊 Môi trường: {st.session_state.temp}°C | {st.session_state.rh}%\n\n"
+            f"*1️⃣ Trạng thái hệ thống:* Chỉ số đạt *{new_vpd:.2f} kPa* —— Phân loại: *{tele_status}*\n"
+            f"*2️⃣ Hướng giải pháp đề xuất:* _{sol}_\n"
+            f"*3️⃣ Xu hướng vận hành tiếp theo:* {trend}"
+        )
+        send_telegram_message(token, chat_id, telegram_msg)
+    
     next_sim_datetime = current_sim_datetime + timedelta(minutes=30)
     
     if next_sim_datetime.hour == 0 and next_sim_datetime.minute == 0:
@@ -190,25 +260,6 @@ def trigger_new_data(vpd_min, vpd_max):
         st.session_state.simulated_time = next_sim_datetime.strftime("%Y-%m-%d %H:%M:%S")
     else:
         st.session_state.simulated_time = next_sim_datetime.strftime("%Y-%m-%d %H:%M:%S")
-
-# --- CONTAINER 1: CẤU HÌNH THEO CÂY TRỒNG ĐÀ LẠT ---
-with st.container(border=True):
-    st.markdown("<p style='color: #2E7D32; font-size: 15px; font-weight: bold; margin-bottom: 2px;'>⚙️ CẤU HÌNH NGƯỠNG VPD THEO CÂY TRỒNG ĐÀ LẠT</p>", unsafe_allow_html=True)
-    plant_option = st.selectbox(
-        "Chọn loại cây trồng đang canh tác:",
-        ["🍓 Dâu tây Đà Lạt", "🌹 Hoa hồng nhà kính", "🌼 Hoa cúc / Hoa đồng tiền", "🍅 Cà chua bi / 🫑 Ớt chuông", "🛠️ Tùy chỉnh thủ công"],
-        disabled=st.session_state.is_running
-    )
-    if plant_option == "🍓 Dâu tây Đà Lạt": default_range = (0.6, 1.0)
-    elif plant_option == "🌹 Hoa hồng nhà kính": default_range = (0.8, 1.2)
-    elif plant_option == "🌼 Hoa cúc / Hoa đồng tiền": default_range = (0.7, 1.1)
-    elif plant_option == "🍅 Cà chua bi / 🫑 Ớt chuông": default_range = (0.8, 1.4)
-    else: default_range = (0.8, 1.2)
-
-    vpd_range = st.slider("Khoảng VPD tối ưu (kPa):", min_value=0.0, max_value=3.0, value=default_range, step=0.1, disabled=st.session_state.is_running or (plant_option != "🛠️ Tùy chỉnh thủ công"))
-    vpd_min, vpd_max = vpd_range
-
-st.write("")
 
 # --- CONTAINER 2: KHU VỰC ĐIỀU KHIỂN & ĐỒNG HỒ ---
 with st.container(border=True):
@@ -219,7 +270,7 @@ with st.container(border=True):
                 setup_next_day()
             st.session_state.is_running = True
             if st.session_state.stt_counter == 0: 
-                trigger_new_data(vpd_min, vpd_max)
+                trigger_new_data(vpd_min, vpd_max, tele_token, tele_chat_id)
             st.rerun()
     with col_btn2:
         if st.button("""⏸️ Tạm dừng hệ thống""", type="secondary", use_container_width=True, disabled=not st.session_state.is_running):
@@ -233,7 +284,7 @@ def vpd_controlled_monitor():
     if st.session_state.is_running:
         st.session_state.countdown -= 1
         if st.session_state.countdown < 0: 
-            trigger_new_data(vpd_min, vpd_max)
+            trigger_new_data(vpd_min, vpd_max, tele_token, tele_chat_id)
             st.rerun()
             
     if st.session_state.is_running:
@@ -264,7 +315,6 @@ def vpd_controlled_monitor():
         if st.session_state.stt_counter == 0:
             st.info("📊 Đang chờ hệ thống bắt đầu kích hoạt phát số...")
         else:
-            # Phân loại màu sắc trạng thái
             if vpd_result < vpd_min:
                 status_lbl = "🟦 QUÁ ẨM"
                 text_color = "#0068C9"
@@ -279,14 +329,16 @@ def vpd_controlled_monitor():
             latest_day_in_db = unique_days[0] if unique_days else current_date_display
             history_of_latest_day = [r for r in st.session_state.history if r["Ngày"] == latest_day_in_db]
             
-            # Khởi tạo nội dung xử lý
             sol_text = get_quick_solution(vpd_result, vpd_min, vpd_max, current_sim_dt.hour)
             trend_msg, msg_type = predict_vpd_trend_v3(history_of_latest_day, current_sim_dt.hour)
             
-            # HIỂN THỊ CHUẨN XÁC 3 DÒNG KHÔNG TRÙNG LẶP NỘI DUNG
+            # Hiển thị trên màn hình chính Dashboard theo đúng 3 dòng logic tuần tự
             st.markdown(f"**1️⃣ Trạng thái hệ thống:** Chỉ số hiện tại đạt <span style='font-size: 16px; color: {text_color}; font-weight: bold;'>{vpd_result:.2f} kPa</span> —— Phân loại: **{status_lbl}**", unsafe_allow_html=True)
             st.markdown(f"**2️⃣ Hướng giải pháp đề xuất:** *{sol_text}*")
             st.markdown(f"**3️⃣ Xu hướng vận hành tiếp theo:** {trend_msg}")
+            
+            if tele_token and tele_chat_id:
+                st.markdown("<p style='color: #0088cc; font-size: 12px; font-style: italic; margin-top: 5px;'>🚀 Đã kích hoạt Telegram: Hệ thống sẽ tự gửi tin nhắn đồng bộ cấu trúc 3 dòng này về điện thoại của bạn!</p>", unsafe_allow_html=True)
 
     # --- BỘ LỌC LƯU TRỮ TRUNG TÂM ---
     if len(st.session_state.history) > 0:
@@ -297,7 +349,7 @@ def vpd_controlled_monitor():
             selected_view_day = st.selectbox("Chọn ngày lịch sử cần kiểm tra (Biểu đồ và Bảng số liệu sẽ đồng bộ theo ngày này):", unique_days)
             
             df_all_records = pd.DataFrame(st.session_state.history)
-            df_filtered = df_all_records[df_all_records["Nancy"] == selected_view_day].iloc[::-1].copy() if "Nancy" in df_all_records.columns else df_all_records[df_all_records["Ngày"] == selected_view_day].iloc[::-1].copy()
+            df_filtered = df_all_records[df_all_records["Ngày"] == selected_view_day].iloc[::-1].copy()
 
         # --- CONTAINER 5: BÁO CÁO PHÂN TÍCH THEO BUỔI CỦA NGÀY ĐƯỢC CHỌN ---
         st.write("")
