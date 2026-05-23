@@ -4,18 +4,18 @@ import math
 from datetime import datetime
 import pandas as pd
 
-# Cau hinh trang web Streamlit
-st.set_page_config(page_title="He thong VPD dieu khien", page_icon="🌿", layout="centered")
+# Cấu hình trang web Streamlit
+st.set_page_config(page_title="Hệ thống VPD điều khiển", page_icon="🌿", layout="centered")
 
-st.title("He Thong Giam Sat va Tinh Toan VPD")
+st.title("""Hệ Thống Giám Sát & Tính Toán VPD""")
 
-# --- CONG THUC TINH VPD ---
+# --- CÔNG THỨC TÍNH VPD ---
 def calculate_vpd(temp, rh):
     vp_sat = 0.61078 * math.exp((17.27 * temp) / (temp + 237.3))
     vpd = vp_sat * (1.0 - (rh / 100.0))
     return vpd
 
-# --- KHOI TAO BIEN TRONG SESSION STATE ---
+# --- KHỞI TẠO BIẾN TRONG SESSION STATE ---
 if 'temp' not in st.session_state:
     st.session_state.temp = 31.5
 if 'rh' not in st.session_state:
@@ -27,22 +27,22 @@ if 'last_updated' not in st.session_state:
 if 'stt_counter' not in st.session_state:
     st.session_state.stt_counter = 1
 
-# Bien kiem tra trang thai chay (Mac dinh la dung)
+# Biến kiểm tra trạng thái chạy (Mặc định ban đầu là False - dừng)
 if 'is_running' not in st.session_state:
     st.session_state.is_running = False
 
-# Khoi tao danh sach lich su du lieu
+# Khởi tạo danh sách lưu lịch sử dữ liệu
 if 'history' not in st.session_state:
     first_vpd = calculate_vpd(st.session_state.temp, st.session_state.rh)
     st.session_state.history = [{
         "STT": st.session_state.stt_counter,
-        "Thoi gian": st.session_state.last_updated,
-        "Nhiet do (degC)": st.session_state.temp,
-        "Do am (%)": st.session_state.rh,
+        "Thời gian": st.session_state.last_updated,
+        "Nhiệt độ (°C)": st.session_state.temp,
+        "Độ ẩm (%)": st.session_state.rh,
         "VPD (kPa)": round(first_vpd, 2)
     }]
 
-# --- HAM RANDOM VA LUU LICH SU ---
+# --- HÀM THỰC HIỆN RANDOM VÀ GHI VÀO LỊCH SỬ ---
 def trigger_new_data():
     st.session_state.temp = round(random.uniform(15.0, 38.0), 1)
     st.session_state.rh = round(random.uniform(30.0, 95.0), 1)
@@ -53,100 +53,100 @@ def trigger_new_data():
     new_vpd = calculate_vpd(st.session_state.temp, st.session_state.rh)
     new_record = {
         "STT": st.session_state.stt_counter,
-        "Thoi gian": st.session_state.last_updated,
-        "Nhiệt độ (degC)": st.session_state.temp,
-        "Do am (%)": st.session_state.rh,
+        "Thời gian": st.session_state.last_updated,
+        "Nhiệt độ (°C)": st.session_state.temp,
+        "Độ ẩm (%)": st.session_state.rh,
         "VPD (kPa)": round(new_vpd, 2)
     }
     st.session_state.history.insert(0, new_record)
 
-# --- KHU VUC DIEU KHIEN ---
-st.subheader("Bang Dieu Khien")
+# --- KHU VỰC ĐIỀU KHIỂN (BẮT ĐẦU / TẠM DỪNG) ---
+st.write("""### 🎛️ Bảng Điều Khiển""")
 col_btn1, col_btn2 = st.columns(2)
 
 with col_btn1:
-    if st.button("Bat dau chay tu dong", type="primary", disabled=st.session_state.is_running):
+    if st.button("""▶️ Bắt đầu chạy tự động""", type="primary", disabled=st.session_state.is_running):
         st.session_state.is_running = True
         st.rerun()
 
 with col_btn2:
-    if st.button("Tam dung he thong", type="secondary", disabled=not st.session_state.is_running):
+    if st.button("""⏸️ Tạm dừng hệ thống""", type="secondary", disabled=not st.session_state.is_running):
         st.session_state.is_running = False
         st.rerun()
 
 st.write("---")
 
-# --- DOAN CODE TU DONG QUET ---
+# --- ĐOẠN CODE CHẠY LẠI MỖI 1 GIÂY ---
 run_interval = 1 if st.session_state.is_running else 999999
 
 @st.fragment(run_every=run_interval)
 def vpd_controlled_monitor():
-    # 1. Xu ly dem nguoc
+    # 1. Xử lý giảm số giây đếm ngược nếu trạng thái đang bật
     if st.session_state.is_running:
         st.session_state.countdown -= 1
         if st.session_state.countdown < 0:
             trigger_new_data()
             
-    # 2. Hien thi trang thai dong ho
+    # 2. HIỂN THỊ TRẠNG THÁI & ĐỒNG HỒ ĐẾM NGƯỢC
     if st.session_state.is_running:
-        st.success("He thong dang HOAT DONG tu dong")
-        st.write(f"Tu dong doi so sau: **{st.session_state.countdown}** giay")
+        st.success("""🟢 Hệ thống đang HOẠT ĐỘNG tự động""")
+        st.write(f"""### ⏳ Tự động đổi số sau: **{st.session_state.countdown}** giây""")
         st.progress(st.session_state.countdown / 30)
     else:
-        st.error("He thong dang TAM DUNG (Bam Bat dau de chay)")
-        st.write("Dang cho kich hoat...")
+        st.error("""🔴 Hệ thống đang TẠM DỪNG (Hãy bấm Bắt đầu ở trên để chạy)""")
+        st.write("""### ⏳ Đang chờ kích hoạt...""")
         st.progress(1.0)
         
-    st.caption(f"Cap nhat gan nhat: {st.session_state.last_updated} - Lan thu: {st.session_state.stt_counter}")
+    st.caption(f"""🔄 Dữ liệu cập nhật gần nhất: {st.session_state.last_updated} (Lần thứ: {st.session_state.stt_counter})""")
     st.write("---")
 
-    # 3. Hien thi so do hien tai
+    # 3. HIỂN THỊ THÔNG SỐ CƠ BẢN
     col1, col2 = st.columns(2)
     with col1:
-        st.metric(label="Nhiet do hien tai", value=f"{st.session_state.temp} degC")
+        st.metric(label="🌡️ Nhiệt độ hiện tại", value=f"{st.session_state.temp} °C")
     with col2:
-        st.metric(label="Do am hien tai", value=f"{st.session_state.rh} %")
+        st.metric(label="💧 Độ ẩm hiện tại", value=f"{st.session_state.rh} %")
         
     vpd_result = calculate_vpd(st.session_state.temp, st.session_state.rh)
     
     st.write("---")
-    st.markdown("### Chi so VPD hien tai:")
-    st.metric(label="Vapor Pressure Deficit", value=f"{vpd_result:.2f} kPa")
+    st.subheader("""Chỉ số VPD hiện tại:""")
+    st.metric(label="Áp suất hơi thâm hụt (Vapor Pressure Deficit)", value=f"{vpd_result:.2f} kPa")
     
-    # 4. Danh gia moi truong
+    # 4. ĐÁNH GIÁ MÔI TRƯỜNG DỰA TRÊN VPD
     if vpd_result < 0.4:
-        st.warning("VPD qua thap (Moi truong qua am): Cay kho thoat nuoc.")
+        st.warning("""⚠️ **VPD quá thấp (Môi trường quá ẩm):** Cây khó thoát nước.""")
     elif 0.4 <= vpd_result <= 0.8:
-        st.info("VPD Thap: Phu hop giai doan nhan giong, kich re.")
+        st.info("""🌱 **VPD Thấp:** Phù hợp cho giai đoạn nhân giống, kích rễ.""")
     elif 0.8 < vpd_result <= 1.2:
-        st.success("VPD Ly tuong: Moi truong hoan hao cho cay phat trien.")
+        st.success("""✅ **VPD Lý tưởng:** Môi trường hoàn hảo cho cây phát triển.""")
     elif 1.2 < vpd_result <= 1.6:
-        st.info("VPD Hoi cao: Phu hop giai doan ra hoa, tao qua.")
+        st.info("""🍂 **VPD Hơi cao:** Phù hợp cho giai đoạn ra hoa, tạo quả.""")
     else:
-        st.error("VPD qua cao (Moi truong kho): Cay mat nuoc nhanh.")
+        st.error("""🚨 **VPD quá cao (Môi trường quá khô):** Cây mất nước nhanh.""")
 
-    # Nut random nhanh
-    if st.button("Random Thu Cong (1 lan)", type="secondary"):
+    # Nút bấm đổi số khẩn cấp bằng tay
+    if st.button("""🎲 Random Thủ Công (1 lần)""", type="secondary"):
         trigger_new_data()
         st.rerun()
 
-    # --- 5. LICH SU DU LIEU ---
+    # --- 5. HIỂN THỊ LỊCH SỬ DỮ LIỆU ---
     st.write("---")
-    st.markdown("### Lich Su Du Lieu Da Ghi Nhan")
+    st.subheader("""📋 Lịch Sử Dữ Liệu Đã Ghi Nhận""")
     df_history = pd.DataFrame(st.session_state.history)
     st.dataframe(df_history, use_container_width=True, hide_index=True)
     
-    # Nut xoa lich su
-    if st.button("Xoa Lich Su"):
+    # Nút xóa lịch sử nếu muốn reset bảng
+    if st.button("""🗑️ Xóa Lịch Sử"""):
         st.session_state.stt_counter = 1
         st.session_state.history = [{
             "STT": st.session_state.stt_counter,
-            "Thoi gian": st.session_state.last_updated,
-            "Nhiet do (degC)": st.session_state.temp,
-            "Do am (%)": st.session_state.rh,
+            "Thời gian": st.session_state.last_updated,
+            "Nhiệt độ (°C)": st.session_state.temp,
+            "Độ ẩm (%)": st.session_state.rh,
             "VPD (kPa)": round(vpd_result, 2)
         }]
         st.rerun()
 
-# Chay toan bo ung dung
+# Chạy toàn bộ chương trình
 vpd_controlled_monitor()
