@@ -143,7 +143,7 @@ if 'history' not in st.session_state: st.session_state.history = []
 if 'stt_counter' not in st.session_state: st.session_state.stt_counter = 0 
 if 'daily_reports' not in st.session_state: st.session_state.daily_reports = {} 
 
-# KHỞI TẠO THỜI GIAN MÔ PHỎNG (Chu kỳ bắt đầu từ 7h00 sáng)
+# KHỞI TẠO THỜI GIAN MÔ PHỎNG (Bắt đầu từ 07:00 Sáng)
 if 'simulated_time' not in st.session_state:
     st.session_state.simulated_time = "2026-05-24 07:00:00"
 
@@ -173,7 +173,7 @@ def trigger_new_data(vpd_min, vpd_max):
     
     next_sim_datetime = current_sim_datetime + timedelta(minutes=30)
     
-    # Khi kim đồng hồ chạm đến 24:00 đêm -> Kết xuất báo cáo ngày cũ, nhảy sang 7h00 sáng ngày hôm sau
+    # Kết thúc ngày -> Xuất báo cáo, nhảy vọt qua chu kỳ đêm sang 7h00 sáng hôm sau
     if next_sim_datetime.hour == 0 and next_sim_datetime.minute == 0:
         report_df = analyze_day_by_blocks(st.session_state.history, vpd_min, vpd_max, current_date_str)
         if report_df is not None:
@@ -288,23 +288,27 @@ def vpd_controlled_monitor():
                 
             with tab_vpd:
                 st.caption(f"ℹ️ Vùng màu an toàn theo [{plant_option}]: 🟦 Quá ẩm (< {vpd_min} kPa) | 🟥 Quá khô (> {vpd_max} kPa)")
+                
                 bg_data = pd.DataFrame([{'start_blue': 0.0, 'end_blue': vpd_min, 'start_red': vpd_max, 'end_red': 3.0}])
                 
                 rect_blue = alt.Chart(bg_data).mark_rect(color='#0068C9', opacity=0.12).encode(
-                    y=alt.Y('start_blue:Q', axis=None), 
+                    y=alt.Y('start_blue:Q'), 
                     y2=alt.Y2('end_blue:Q')
                 )
+                
                 rect_red = alt.Chart(bg_data).mark_rect(color='#FF4B4B', opacity=0.12).encode(
-                    y=alt.Y('start_red:Q', axis=None), 
+                    y=alt.Y('start_red:Q'), 
                     y2=alt.Y2('end_red:Q')
                 )
+                
                 line_vpd = alt.Chart(df_chart).mark_line(color="#2E7D32", point=True).encode(
                     x=alt.X('Hiển thị Giờ:O', axis=alt.Axis(title="Mốc thời gian", labelAngle=0)),
-                    y=alt.Y('VPD (kPa):Q', scale=alt.Scale(domain=[0, 3.0]), axis=alt.Axis(title="Chỉ số VPD (kPa)")),
+                    y=alt.Y('VPD (kPa):Q', scale=alt.Scale(domain=[0, 3.0]), axis=alt.Axis(title="Chỉ số VPD (kPa)", grid=True)),
                     tooltip=['Ngày', 'Hiển thị Giờ', 'VPD (kPa)', 'Trạng thái']
                 )
                 
-                chart_vpd = (rect_blue + rect_red + line_vpd).properties(height=260)
+                # Sử dụng .resolve_scale(y='shared') bảo vệ trục Y hướng lên trên không bị biến mất
+                chart_vpd = (rect_blue + rect_red + line_vpd).properties(height=260).resolve_scale(y='shared')
                 st.altair_chart(chart_vpd, use_container_width=True)
 
     # --- CONTAINER 7: LỊCH SỬ DỮ LIỆU BẢNG ---
