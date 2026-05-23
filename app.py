@@ -19,7 +19,7 @@ def calculate_vpd(temp, rh):
     vpd = vp_sat * (1.0 - (rh / 100.0))
     return vpd
 
-# --- HÀM RANDOM THÔNG MINH (ƯU TIÊN KỊCH BẢN TỐT) ---
+# --- HÀM RANDOM THÔNG MINH ---
 def get_smart_random_data():
     rate = random.randint(1, 100)
     if rate <= 70:
@@ -70,7 +70,23 @@ def trigger_new_data():
     }
     st.session_state.history.insert(0, new_record)
 
-# --- CONTAINER 1: KHU VỰC ĐIỀU KHIỂN & ĐỒNG HỒ ---
+# --- CONTAINER 1: CẤU HÌNH KHOẢNG VPD TỐI ƯU ---
+with st.container(border=True):
+    st.markdown("<p style='color: #2E7D32; font-size: 15px; font-weight: bold; margin-bottom: 2px;'>⚙️ CẤU HÌNH NGƯỠNG VPD TỐI ƯU CHO CÂY TRỒNG</p>", unsafe_allow_html=True)
+    # Thanh trượt cho phép người dùng chọn khoảng tối ưu (Min và Max) từ 0.0 đến 3.0 kPa
+    vpd_range = st.slider(
+        "Kéo chọn khoảng VPD mong muốn (kPa):",
+        min_value=0.0,
+        max_value=3.0,
+        value=(0.8, 1.2), # Mặc định ban đầu là 0.8 đến 1.2
+        step=0.1
+    )
+    vpd_min, vpd_max = vpd_range
+    st.caption(f"Ngưỡng tùy chỉnh hiện tại: Thấp hơn **{vpd_min} kPa** là Quá ẩm | Từ **{vpd_min} - {vpd_max} kPa** là Lý tưởng | Cao hơn **{vpd_max} kPa** là Quá khô.")
+
+st.write("")
+
+# --- CONTAINER 2: KHU VỰC ĐIỀU KHIỂN & ĐỒNG HỒ ---
 with st.container(border=True):
     col_btn1, col_btn2 = st.columns(2)
     with col_btn1:
@@ -100,7 +116,7 @@ def vpd_controlled_monitor():
     else:
         st.info("💡 Hệ thống đang tạm dừng. Bấm nút màu xanh phía trên để bắt đầu chạy tự động.")
 
-    # --- CONTAINER 2: THÔNG SỐ HIỆN TẠI ---
+    # --- CONTAINER 3: THÔNG SỐ HIỆN TẠI ---
     st.write("")
     with st.container(border=True):
         st.markdown("<p style='color: gray; font-size: 14px; margin-bottom: 5px;'>📊 THÔNG SỐ THỜI GIAN THỰC</p>", unsafe_allow_html=True)
@@ -111,7 +127,7 @@ def vpd_controlled_monitor():
             st.metric(label="💧 Độ ẩm", value=f"{st.session_state.rh} %" if st.session_state.stt_counter > 0 else "-- %")
         st.caption(f"⏱️ Cập nhật lúc: {st.session_state.last_updated} (Lần đo thứ: {st.session_state.stt_counter})")
 
-    # --- CONTAINER 3: KẾT QUẢ VPD, ĐÁNH GIÁ & GIẢI PHÁP ---
+    # --- CONTAINER 4: KẾT QUẢ VPD, ĐÁNH GIÁ DỰA TRÊN THANH TRƯỢT & GIẢI PHÁP ---
     vpd_result = calculate_vpd(st.session_state.temp, st.session_state.rh)
     
     st.write("")
@@ -119,33 +135,25 @@ def vpd_controlled_monitor():
         st.markdown("<p style='color: gray; font-size: 14px; margin-bottom: 5px;'>🎯 CHỈ SỐ VPD ĐẦU RA</p>", unsafe_allow_html=True)
         st.metric(label="Áp suất hơi thâm hụt (Vapor Pressure Deficit)", value=f"{vpd_result:.2f} kPa" if st.session_state.stt_counter > 0 else "-- kPa")
         
-        # Logic phân tích tình huống và đưa ra giải pháp
         if st.session_state.stt_counter > 0:
-            st.markdown("**🔍 Đánh giá trạng thái & Giải pháp đề xuất:**")
+            st.markdown("**🔍 Đánh giá theo cấu hình riêng & Giải pháp:**")
             
-            if vpd_result < 0.4:
-                st.warning("""⚠️ **VPD quá thấp (Môi trường quá ẩm):** Cây khó thoát nước, dễ bị ngập úng tế bào và nấm bệnh tấn công.""")
-                st.info("""💡 **Giải pháp:** Bật quạt thông gió để lưu thông không khí, kích hoạt máy hút ẩm hoặc tăng nhẹ nhiệt độ phòng nuôi.""")
+            # Kiểm tra trạng thái so với ngưỡng người dùng tự thiết lập trên Slider
+            if vpd_result < vpd_min:
+                st.warning(f"⚠️ **VPD đang thấp hơn ngưỡng tối ưu ({vpd_result:.2f} < {vpd_min} kPa):** Môi trường đang quá ẩm.")
+                st.info("💡 **Giải pháp:** Bật quạt thông gió để tăng lưu thông khí, bật máy hút ẩm hoặc tăng nhẹ nhiệt độ phòng nuôi.")
                 
-            elif 0.4 <= vpd_result <= 0.8:
-                st.info("""🌱 **VPD Thấp:** Môi trường mát mẻ ẩm vừa, rất phù hợp cho giai đoạn nhân giống, kích rễ hoặc chăm sóc cây con.""")
-                st.info("""💡 **Giải pháp:** Giữ nguyên môi trường ổn định, hạn chế xáo trộn đột ngột.""")
-                
-            elif 0.8 < vpd_result <= 1.2:
-                st.success("""✅ **VPD Lý tưởng:** Môi trường hoàn hảo nhất! Lỗ khí khổng mở tối ưu giúp cây hấp thụ CO2 tốt và phát triển mạnh mẽ.""")
-                st.info("""💡 **Giải pháp:** Duy trì hệ thống tưới và thông gió ở trạng thái hiện tại. Đây là trạng thái đích của mọi nhà vườn.""")
-                
-            elif 1.2 < vpd_result <= 1.6:
-                st.info("""🍂 **VPD Hơi cao:** Môi trường hơi khô, đẩy nhanh tốc độ thoát hơi nước. Thích hợp cho giai đoạn thúc cây ra hoa hoặc tạo quả.""")
-                st.info("""💡 **Giải pháp:** Theo dõi sát lượng nước tưới gốc, bổ sung độ ẩm nhẹ nếu thấy chỉ số tiếp tục tăng.""")
+            elif vpd_min <= vpd_result <= vpd_max:
+                st.success(f"✅ **VPD nằm trong khoảng lý tưởng ({vpd_min} ≤ {vpd_result:.2f} ≤ {vpd_max} kPa):** Môi trường hoàn hảo cho cây phát triển tối ưu theo cấu hình của bạn.")
+                st.info("💡 **Giải pháp:** Duy trì hệ thống tưới, che nắng và quạt thông gió ở trạng thái hiện tại.")
                 
             else:
-                st.error("""🚨 **VPD quá cao (Môi trường quá khô):** Cây mất nước quá nhanh, buộc phải đóng kín khí khổng để sinh tồn, khiến cây ngừng lớn.""")
-                st.info("""💡 **Giải pháp:** Kích hoạt ngay hệ thống phun sương làm mát, kéo rèm che bớt nắng và tăng lưu lượng tưới gốc cho cây.""")
+                st.error(f"🚨 **VPD đang cao hơn ngưỡng tối ưu ({vpd_result:.2f} > {vpd_max} kPa):** Môi trường đang quá khô.")
+                st.info("💡 **Giải pháp:** Kích hoạt ngay hệ thống phun sương làm mát, kéo rèm giảm bớt nắng và tăng lưu lượng nước tưới gốc.")
         else:
             st.write("Chờ hệ thống kích hoạt...")
 
-    # --- CONTAINER 4: LỊCH SỬ DỮ LIỆU ---
+    # --- CONTAINER 5: LỊCH SỬ DỮ LIỆU ---
     st.write("")
     with st.container(border=True):
         st.markdown("<p style='color: gray; font-size: 14px; margin-bottom: 10px;'>📋 LỊCH SỬ DỮ LIỆU ĐÃ GHI NHẬN</p>", unsafe_allow_html=True)
@@ -156,7 +164,7 @@ def vpd_controlled_monitor():
         else:
             st.write("Chưa có dữ liệu lịch sử.")
         
-        # Nút xóa lịch sử nhỏ gọn
+        # Nút xóa lịch sử
         col_space, col_del = st.columns([4, 1])
         with col_del:
             if st.button("""🗑️ Xóa lịch sử""", type="secondary", use_container_width=True, disabled=len(st.session_state.history) == 0):
