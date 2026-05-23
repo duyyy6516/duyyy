@@ -164,30 +164,11 @@ if 'is_running' not in st.session_state: st.session_state.is_running = False
 if 'is_completed' not in st.session_state: st.session_state.is_completed = False 
 if 'history' not in st.session_state: st.session_state.history = []
 if 'stt_counter' not in st.session_state: st.session_state.stt_counter = 0 
+if 'plant_idx' not in st.session_state: st.session_state.plant_idx = 0
+if 'vpd_range_val' not in st.session_state: st.session_state.vpd_range_val = (0.6, 1.0)
 
 if 'simulated_time' not in st.session_state:
     st.session_state.simulated_time = "2026-05-24 07:00:00"
-
-# --- THANH CẤU HÌNH SIDEBAR (CỘT TRÁI) ---
-with st.sidebar:
-    st.markdown("<h3 style='color: #2E7D32;'>⚙️ BẢN ĐIỀU KHIỂN CẤU HÌNH</h3>", unsafe_allow_html=True)
-    
-    plant_option = st.selectbox(
-        "Chọn loại cây trồng canh tác:",
-        ["🍓 Dâu tây Đà Lạt", "🌹 Hoa hồng nhà kính", "🌼 Hoa cúc / Hoa đồng tiền", "🍅 Cà chua bi / 🫑 Ớt chuông", "🛠️ Tùy chỉnh thủ công"],
-        disabled=st.session_state.is_running
-    )
-    if plant_option == "🍓 Dâu tây Đà Lạt": default_range = (0.6, 1.0)
-    elif plant_option == "🌹 Hoa hồng nhà kính": default_range = (0.8, 1.2)
-    elif plant_option == "🌼 Hoa cúc / Hoa đồng tiền": default_range = (0.7, 1.1)
-    elif plant_option == "🍅 Cà chua bi / 🫑 Ớt chuông": default_range = (0.8, 1.4)
-    else: default_range = (0.8, 1.2)
-
-    vpd_range = st.slider("Khoảng VPD tối ưu (kPa):", min_value=0.0, max_value=3.0, value=default_range, step=0.1, disabled=st.session_state.is_running or (plant_option != "🛠️ Tùy chỉnh thủ công"))
-    vpd_min, vpd_max = vpd_range
-
-    st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
-    st.success("🤖 Hệ thống Telegram Bot: Đã đồng bộ cố định với Chat ID cá nhân thành công!")
 
 # --- HÀM TẠO LẬP NGÀY MỚI KHI BẤM CHẠY TIẾP ---
 def setup_next_day():
@@ -262,7 +243,7 @@ def trigger_new_data(vpd_min, vpd_max, token, chat_id):
     else:
         st.session_state.simulated_time = next_sim_datetime.strftime("%Y-%m-%d %H:%M:%S")
 
-# --- CONTAINER 2: KHU VỰC ĐIỀU KHIỂN & ĐỒNG HỒ ---
+# --- CONTAINER 1: KHU VỰC ĐIỀU KHIỂN ---
 with st.container(border=True):
     col_btn1, col_btn2 = st.columns(2)
     with col_btn1:
@@ -271,12 +252,46 @@ with st.container(border=True):
                 setup_next_day()
             st.session_state.is_running = True
             if st.session_state.stt_counter == 0: 
-                trigger_new_data(vpd_min, vpd_max, TELE_TOKEN, TELE_CHAT_ID)
+                # Đọc giá trị cấu hình trực tiếp để kích hoạt phát số đầu tiên chính xác
+                trigger_new_data(st.session_state.vpd_range_val[0], st.session_state.vpd_range_val[1], TELE_TOKEN, TELE_CHAT_ID)
             st.rerun()
     with col_btn2:
         if st.button("⏸️ Tạm dừng hệ thống", type="secondary", use_container_width=True, disabled=not st.session_state.is_running):
             st.session_state.is_running = False
             st.rerun()
+
+# --- CONTAINER 2: BẢN ĐIỀU KHIỂN CẤU HÌNH (ĐÃ CHUYỂN XUỐNG DƯỚI NÚT BẮT ĐẦU) ---
+st.write("")
+with st.container(border=True):
+    st.markdown("<p style='color: #2E7D32; font-size: 16px; font-weight: bold; margin-bottom: 5px;'>⚙️ BẢN ĐIỀU KHIỂN CẤU HÌNH CÂY TRỒNG</p>", unsafe_allow_html=True)
+    
+    plant_list = ["🍓 Dâu tây Đà Lạt", "🌹 Hoa hồng nhà kính", "🌼 Hoa cúc / Hoa đồng tiền", "🍅 Cà chua bi / 🫑 Ớt chuông", "🛠️ Tùy chỉnh thủ công"]
+    
+    plant_option = st.selectbox(
+        "Chọn loại cây trồng canh tác:",
+        plant_list,
+        index=st.session_state.plant_idx,
+        disabled=st.session_state.is_running
+    )
+    
+    # Đồng bộ index loại cây trồng
+    st.session_state.plant_idx = plant_list.index(plant_option)
+    
+    # Xác định khoảng mặc định theo cây
+    if plant_option == "🍓 Dâu tây Đà Lạt": default_range = (0.6, 1.0)
+    elif plant_option == "🌹 Hoa hồng nhà kính": default_range = (0.8, 1.2)
+    elif plant_option == "🌼 Hoa cúc / Hoa đồng tiền": default_range = (0.7, 1.1)
+    elif plant_option == "🍅 Cà chua bi / 🫑 Ớt chuông": default_range = (0.8, 1.4)
+    else: default_range = st.session_state.vpd_range_val
+
+    vpd_range = st.slider(
+        "Khoảng VPD tối ưu (kPa):", 
+        min_value=0.0, max_value=3.0, 
+        value=default_range, step=0.1, 
+        disabled=st.session_state.is_running or (plant_option != "🛠️ Tùy chỉnh thủ công")
+    )
+    st.session_state.vpd_range_val = vpd_range
+    vpd_min, vpd_max = vpd_range
 
 run_interval = 1 if st.session_state.is_running else 999999
 
