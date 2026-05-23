@@ -46,6 +46,39 @@ def get_weather_by_time(sim_time):
         
     return temp, rh
 
+# --- HÀM DỰ BÁO XU HƯỚNG SỚM (PREDICTIVE TREND ANALYSIS) ---
+def predict_vpd_trend(history, vpd_min, vpd_max):
+    if len(history) < 3:
+        return "🔄 Đang thu thập thêm dữ liệu để phân tích xu hướng...", "info"
+    
+    # Lấy 3 điểm dữ liệu gần nhất (lưu ý history chèn phần tử mới vào đầu index 0)
+    current_vpd = history[0]["VPD (kPa)"]
+    prev_vpd_1 = history[1]["VPD (kPa)"]
+    prev_vpd_2 = history[2]["VPD (kPa)"]
+    
+    # Tính toán tốc độ thay đổi trung bình (độ dốc trend)
+    diff_1 = current_vpd - prev_vpd_1
+    diff_2 = prev_vpd_1 - prev_vpd_2
+    avg_diff = (diff_1 + diff_2) / 2
+    
+    # Dự đoán giá trị VPD ở lượt tiếp theo (sau 30 phút mô phỏng)
+    predicted_vpd = current_vpd + avg_diff
+    
+    # Chỉ cảnh báo sớm khi HIỆN TẠI đang ở vùng AN TOÀN nhưng lượt TỚI có nguy cơ vượt ngưỡng
+    if vpd_min <= current_vpd <= vpd_max:
+        if predicted_vpd < vpd_min:
+            return f"🔮 DỰ BÁO SỚM: Chỉ số đang giảm nhanh (Độ dốc: {avg_diff:.2f}). Môi trường có nguy cơ SẮP QUÁ ẨM trong 30-60 phút tới!", "warning"
+        elif predicted_vpd > vpd_max:
+            return f"🔮 DỰ BÁO SỚM: Chỉ số đang tăng mạnh (Độ dốc: +{avg_diff:.2f}). Môi trường có nguy cơ SẮP QUÁ KHÔ trong 30-60 phút tới!", "error"
+        else:
+            return "🟢 Xu hướng: Các chỉ số đang phát triển ổn định, an toàn trong ngưỡng sinh trưởng.", "success"
+    else:
+        # Nếu hiện tại đã quá ẩm hoặc quá khô rồi thì trả về trạng thái khẩn cấp hiện tại
+        if current_vpd < vpd_min:
+            return "🚨 TRẠNG THÁI HIỆN TẠI: Nhà kính đang ở trong vùng QUÁ ẨM!", "warning"
+        else:
+            return "🚨 TRẠNG THÁI HIỆN TẠI: Nhà kính đang ở trong vùng QUÁ KHÔ!", "error"
+
 # --- KHỞI TẠO BIẾN TRONG SESSION STATE ---
 if 'temp' not in st.session_state:
     st.session_state.temp = 0.0
@@ -179,25 +212,37 @@ def vpd_controlled_monitor():
             st.metric(label="💧 Độ ẩm", value=f"{st.session_state.rh} %" if st.session_state.stt_counter > 0 else "-- %")
         st.caption(f"Lần đo thứ: {st.session_state.stt_counter}")
 
-    # --- CONTAINER 4: KẾT QUẢ VPD, ĐÁNH GIÁ & GIẢI PHÁP ---
+    # --- CONTAINER 4: KẾT QUẢ VPD & BỘ NÃO DỰ BÁO SỚM CHUẨN XU HƯỚNG ---
     vpd_result = calculate_vpd(st.session_state.temp, st.session_state.rh)
     
     st.write("")
     with st.container(border=True):
-        st.markdown("<p style='color: gray; font-size: 14px; margin-bottom: 5px;'>🎯 CHỈ SỐ VPD ĐẦU RA</p>", unsafe_allow_html=True)
+        st.markdown("<p style='color: gray; font-size: 14px; margin-bottom: 5px;'>🎯 CHỈ SỐ VPD ĐẦU RA & TRẠNG THÁI DỰ BÁO</p>", unsafe_allow_html=True)
         st.metric(label="Áp suất hơi thâm hụt (Vapor Pressure Deficit)", value=f"{vpd_result:.2f} kPa" if st.session_state.stt_counter > 0 else "-- kPa")
         
         if st.session_state.stt_counter > 0:
-            st.markdown(f"**🔍 Đánh giá trạng thái phù hợp cho [{plant_option}]:**")
-            if vpd_result < vpd_min:
-                st.warning(f"⚠️ **VPD đang thấp hơn ngưỡng tối ưu ({vpd_result:.2f} < {vpd_min} kPa):** Môi trường đang quá ẩm.")
-                st.info("💡 **Giải pháp:** Bật quạt thông gió, kích hoạt máy hút ẩm hoặc tăng nhẹ nhiệt độ bằng hệ thống sưởi ấm.")
-            elif vpd_min <= vpd_result <= vpd_max:
-                st.success(f"✅ **VPD nằm trong khoảng lý tưởng ({vpd_min} ≤ {vpd_result:.2f} ≤ {vpd_max} kPa):** Môi trường hoàn hảo!")
-                st.info("💡 **Giải pháp:** Duy trì hệ thống ổn định ở trạng thái hiện tại.")
+            # Gọi hàm phân tích xu hướng dự báo sớm
+            trend_msg, msg_type = predict_vpd_trend(st.session_state.history, vpd_min, vpd_max)
+            
+            # Hiển thị thông báo dự báo bằng các hộp thông báo màu sắc trực quan của Streamlit
+            st.markdown("**🔮 Trung tâm Dự báo Xu hướng Nhà kính:**")
+            if msg_type == "warning":
+                st.warning(trend_msg)
+            elif msg_type == "error":
+                st.error(trend_msg)
+            elif msg_type == "success":
+                st.success(trend_msg)
             else:
-                st.error(f"🚨 **VPD đang cao hơn ngưỡng tối ưu ({vpd_result:.2f} > {vpd_max} kPa):** Môi trường đang quá khô.")
-                st.info("💡 **Giải pháp:** Bật ngay hệ thống phun sương mịn, kéo lưới đen che bớt nắng và tăng tưới nước nhỏ giọt tại gốc.")
+                st.info(trend_msg)
+                
+            # Phần hiển thị hành động/giải pháp thực tế
+            st.markdown(f"**🔍 Đánh giá chi tiết cho [{plant_option}]:**")
+            if vpd_result < vpd_min:
+                st.write(" Môi trường hiện tại đang quá ẩm. **Giải pháp:** Bật thông gió, máy hút ẩm.")
+            elif vpd_min <= vpd_result <= vpd_max:
+                st.write(" Môi trường hiện tại hoàn hảo! **Giải pháp:** Tiếp tục duy trì.")
+            else:
+                st.write(" Môi trường hiện tại đang quá khô. **Giải pháp:** Kích hoạt hệ thống phun sương mịn.")
         else:
             st.write("Chờ hệ thống kích hoạt...")
 
@@ -217,7 +262,7 @@ def vpd_controlled_monitor():
                     x=alt.X('Thời gian mô phỏng:O', axis=alt.Axis(title="Mốc giờ trong ngày", labelAngle=0)),
                     y=alt.Y('Nhiệt độ (°C):Q', scale=alt.Scale(zero=False)),
                     tooltip=['STT', 'Thời gian mô phỏng', 'Nhiệt độ (°C)']
-                ).properties(height=280).interactive()  # THÊM: .interactive() để Zoom/Pan tự do
+                ).properties(height=280).interactive()
                 st.altair_chart(chart_temp, use_container_width=True)
                 
             with tab_rh:
@@ -225,7 +270,7 @@ def vpd_controlled_monitor():
                     x=alt.X('Thời gian mô phỏng:O', axis=alt.Axis(title="Mốc giờ trong ngày", labelAngle=0)),
                     y=alt.Y('Độ ẩm (%):Q', scale=alt.Scale(zero=False)),
                     tooltip=['STT', 'Thời gian mô phỏng', 'Độ ẩm (%)']
-                ).properties(height=280).interactive()  # THÊM: .interactive() để Zoom/Pan tự do
+                ).properties(height=280).interactive()
                 st.altair_chart(chart_rh, use_container_width=True)
                 
             with tab_vpd:
@@ -250,7 +295,6 @@ def vpd_controlled_monitor():
                     tooltip=['STT', 'Thời gian mô phỏng', 'VPD (kPa)', 'Trạng thái']
                 )
                 
-                # THÊM: Tích hợp thuộc tính tương tác nâng cao cuối lớp tổng hợp chart_vpd
                 chart_vpd = (rect_blue + rect_red + line_vpd).properties(height=280).interactive()
                 st.altair_chart(chart_vpd, use_container_width=True)
 
