@@ -125,11 +125,6 @@ def vpd_controlled_monitor():
     else:
         st.error("""🚨 **VPD quá cao (Môi trường quá khô):** Cây mất nước nhanh.""")
 
-    # Nút bấm đổi số khẩn cấp bằng tay
-    if st.button("""🎲 Random Thủ Công (1 lần)""", type="secondary"):
-        trigger_new_data()
-        st.rerun()
-
     # --- 5. HIỂN THỊ LỊCH SỬ DỮ LIỆU ---
     st.write("---")
     st.subheader("""📋 Lịch Sử Dữ Liệu Đã Ghi Nhận""")
