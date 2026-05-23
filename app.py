@@ -73,16 +73,23 @@ def trigger_new_data():
 # --- CONTAINER 1: CẤU HÌNH KHOẢNG VPD TỐI ƯU ---
 with st.container(border=True):
     st.markdown("<p style='color: #2E7D32; font-size: 15px; font-weight: bold; margin-bottom: 2px;'>⚙️ CẤU HÌNH NGƯỠNG VPD TỐI ƯU CHO CÂY TRỒNG</p>", unsafe_allow_html=True)
-    # Thanh trượt cho phép người dùng chọn khoảng tối ưu (Min và Max) từ 0.0 đến 3.0 kPa
+    
+    # THAY ĐỔI QUAN TRỌNG: Thêm tham số disabled=st.session_state.is_running 
+    # Khi hệ thống đang hoạt động, slider sẽ bị khóa lại không cho chỉnh sửa
     vpd_range = st.slider(
         "Kéo chọn khoảng VPD mong muốn (kPa):",
         min_value=0.0,
         max_value=3.0,
-        value=(0.8, 1.2), # Mặc định ban đầu là 0.8 đến 1.2
-        step=0.1
+        value=(0.8, 1.2),
+        step=0.1,
+        disabled=st.session_state.is_running
     )
     vpd_min, vpd_max = vpd_range
-    st.caption(f"Ngưỡng tùy chỉnh hiện tại: Thấp hơn **{vpd_min} kPa** là Quá ẩm | Từ **{vpd_min} - {vpd_max} kPa** là Lý tưởng | Cao hơn **{vpd_max} kPa** là Quá khô.")
+    
+    if st.session_state.is_running:
+        st.caption("🔒 *Thanh trượt đã bị khóa vì hệ thống đang chạy. Hãy bấm Tạm dừng nếu muốn điều chỉnh ngưỡng.*")
+    else:
+        st.caption(f"🔓 Ngưỡng hiện tại: Thấp hơn **{vpd_min} kPa** là Quá ẩm | Từ **{vpd_min} - {vpd_max} kPa** là Lý tưởng | Cao hơn **{vpd_max} kPa** là Quá khô.")
 
 st.write("")
 
@@ -114,7 +121,7 @@ def vpd_controlled_monitor():
         st.write(f"⏳ Tự động đổi số sau: **{st.session_state.countdown}** giây")
         st.progress(st.session_state.countdown / 30)
     else:
-        st.info("💡 Hệ thống đang tạm dừng. Bấm nút màu xanh phía trên để bắt đầu chạy tự động.")
+        st.info("💡 Hệ thống đang tạm dừng. Ngưỡng cấu hình đã mở khóa, bạn có thể tự do điều chỉnh.")
 
     # --- CONTAINER 3: THÔNG SỐ HIỆN TẠI ---
     st.write("")
@@ -127,7 +134,7 @@ def vpd_controlled_monitor():
             st.metric(label="💧 Độ ẩm", value=f"{st.session_state.rh} %" if st.session_state.stt_counter > 0 else "-- %")
         st.caption(f"⏱️ Cập nhật lúc: {st.session_state.last_updated} (Lần đo thứ: {st.session_state.stt_counter})")
 
-    # --- CONTAINER 4: KẾT QUẢ VPD, ĐÁNH GIÁ DỰA TRÊN THANH TRƯỢT & GIẢI PHÁP ---
+    # --- CONTAINER 4: KẾT QUẢ VPD, ĐÁNH GIÁ & GIẢI PHÁP ---
     vpd_result = calculate_vpd(st.session_state.temp, st.session_state.rh)
     
     st.write("")
@@ -138,7 +145,6 @@ def vpd_controlled_monitor():
         if st.session_state.stt_counter > 0:
             st.markdown("**🔍 Đánh giá theo cấu hình riêng & Giải pháp:**")
             
-            # Kiểm tra trạng thái so với ngưỡng người dùng tự thiết lập trên Slider
             if vpd_result < vpd_min:
                 st.warning(f"⚠️ **VPD đang thấp hơn ngưỡng tối ưu ({vpd_result:.2f} < {vpd_min} kPa):** Môi trường đang quá ẩm.")
                 st.info("💡 **Giải pháp:** Bật quạt thông gió để tăng lưu thông khí, bật máy hút ẩm hoặc tăng nhẹ nhiệt độ phòng nuôi.")
