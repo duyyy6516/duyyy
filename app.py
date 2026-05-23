@@ -66,18 +66,14 @@ if 'simulated_time' not in st.session_state:
 
 # --- HÀM CẬP NHẬT DỮ LIỆU MỚI ---
 def trigger_new_data(vpd_min, vpd_max):
-    # Chuyển chuỗi thời gian từ session_state về dạng datetime đối tượng để tính toán
     current_sim_datetime = datetime.strptime(st.session_state.simulated_time, "%Y-%m-%d %H:%M:%S")
     
-    # Lấy dữ liệu thời tiết dựa theo giờ mô phỏng hiện tại
     st.session_state.temp, st.session_state.rh = get_weather_by_time(current_sim_datetime)
-    st.session_state.countdown = 15 # Reset bộ đếm về lại 15 giây
+    st.session_state.countdown = 15 
     st.session_state.stt_counter += 1
     
-    # Tính toán VPD
     new_vpd = calculate_vpd(st.session_state.temp, st.session_state.rh)
     
-    # Xác định chuỗi trạng thái lúc đó để lưu vào bảng lịch sử
     if new_vpd < vpd_min:
         status_text = "⚠️ Quá ẩm"
     elif vpd_min <= new_vpd <= vpd_max:
@@ -85,7 +81,6 @@ def trigger_new_data(vpd_min, vpd_max):
     else:
         status_text = "🚨 Quá khô"
     
-    # Lưu vào lịch sử với đầy đủ cột mốc thông tin và trạng thái
     display_time = current_sim_datetime.strftime("%H:%M")
     new_record = {
         "STT": st.session_state.stt_counter,
@@ -97,7 +92,6 @@ def trigger_new_data(vpd_min, vpd_max):
     }
     st.session_state.history.insert(0, new_record)
     
-    # Tăng thời gian mô phỏng thêm 30 phút cho lần nhảy số tiếp theo
     next_sim_datetime = current_sim_datetime + timedelta(minutes=30)
     st.session_state.simulated_time = next_sim_datetime.strftime("%Y-%m-%d %H:%M:%S")
 
@@ -117,7 +111,7 @@ with st.container(border=True):
         default_range = (0.8, 1.2)
     elif plant_option == "🌼 Hoa cúc / Hoa đồng tiền":
         default_range = (0.7, 1.1)
-    elif plant_option == "🍅 Cà chua bi / 𫑑 Ớt chuông":
+    elif plant_option == "🍅 Cà chua bi / 🫑 Ớt chuông":
         default_range = (0.8, 1.4)
     else:
         default_range = (0.8, 1.2)
@@ -167,11 +161,10 @@ def vpd_controlled_monitor():
             
     if st.session_state.is_running:
         st.write(f"⏳ Tự động đổi số sau: **{st.session_state.countdown}** giây")
-        st.progress(st.session_state.countdown / 15) # Chia cho 15
+        st.progress(st.session_state.countdown / 15)
     else:
         st.info("💡 Hệ thống đang tạm dừng. Bạn có thể thay đổi loại cây trồng hoặc ngưỡng cấu hình phía trên.")
 
-    # Hiển thị mốc giờ mô phỏng hiện tại lên giao diện
     current_sim_dt = datetime.strptime(st.session_state.simulated_time, "%Y-%m-%d %H:%M:%S")
     
     # --- CONTAINER 3: THÔNG SỐ HIỆN TẠI ---
@@ -235,35 +228,33 @@ def vpd_controlled_monitor():
                 st.altair_chart(chart_rh, use_container_width=True)
                 
             with tab_vpd:
-                st.caption(f"ℹ️ Tô màu nền: Xanh dương (Quá ẩm < {vpd_min} kPa), Đỏ (Quá khô > {vpd_max} kPa)")
+                st.caption(f"ℹ️ Vùng màu tự động theo [{plant_option}]: 🟦 Quá ẩm (< {vpd_min} kPa) | 🟥 Quá khô (> {vpd_max} kPa)")
                 
-                # --- LỚP NỀN CONDITIONAL BANDING ---
-                # Sử dụng 'rect' để tô kín vùng nền từ Y=0 đến Y_min và từ Y_max đến Y_max_scale
+                # SỬA ĐỔI QUAN TRỌNG: Gán giá trị vpd_min và vpd_max động trực tiếp vào DataFrame cấu hình nền để Altair vẽ chính xác tuyệt đối
+                bg_data = pd.DataFrame([{
+                    'start_blue': 0.0, 'end_blue': vpd_min,
+                    'start_red': vpd_max, 'end_red': 3.0
+                }])
                 
-                # 1. Vùng xanh dương (Quá ẩm)
-                rect_blue = alt.Chart(pd.DataFrame({'y': [0], 'y2': [vpd_min]})).mark_rect(color='#0068C9', opacity=0.2).encode(
-                    y='y', y2='y2'
+                # 1. Vẽ dải màu xanh dương (Dưới vpd_min)
+                rect_blue = alt.Chart(bg_data).mark_rect(color='#0068C9', opacity=0.15).encode(
+                    y=alt.Y('start_blue:Q'), y2=alt.Y2('end_blue:Q')
                 )
                 
-                # 2. Vùng đỏ (Quá khô)
-                # Đặt mốc 3.0 là giới hạn tối đa của thang đo trục Y để tô màu
-                rect_red = alt.Chart(pd.DataFrame({'y': [vpd_max], 'y2': [3.0]})).mark_rect(color='#FF4B4B', opacity=0.2).encode(
-                    y='y', y2='y2'
+                # 2. Vẽ dải màu đỏ (Trên vpd_max)
+                rect_red = alt.Chart(bg_data).mark_rect(color='#FF4B4B', opacity=0.15).encode(
+                    y=alt.Y('start_red:Q'), y2=alt.Y2('end_red:Q')
                 )
                 
-                # --- LỚP ĐƯỜNG DỮ LIỆU CHÍNH ---
-                # Giữ nguyên đường Line chart và chấm tròn với màu xanh lá đặc trưng (không đổi màu theo vùng)
+                # 3. Đường đồ thị VPD chính
                 line_vpd = alt.Chart(df_chart).mark_line(color="#2E7D32", point=True).encode(
                     x=alt.X('Thời gian mô phỏng:O', axis=alt.Axis(title="Mốc giờ trong ngày", labelAngle=0)),
-                    y=alt.Y('VPD (kPa):Q', scale=alt.Scale(domain=[0, 3.0]), axis=alt.Axis(title="VPD (kPa)")), # Ép domain Y từ 0 đến 3
+                    y=alt.Y('VPD (kPa):Q', scale=alt.Scale(domain=[0, 3.0]), axis=alt.Axis(title="VPD (kPa)")),
                     tooltip=['STT', 'Thời gian mô phỏng', 'VPD (kPa)']
                 )
                 
-                # --- KẾT HỢP LỚP NỀN VÀ ĐƯỜNG DỮ LIỆU ---
-                # Dùng dấu cộng (+) để xếp chồng lớp nền lên trước, lớp đường lên sau
-                chart_vpd = rect_blue + rect_red + line_vpd
-                chart_vpd = chart_vpd.properties(height=280)
-                
+                # Tích hợp các lớp (Lớp nền xanh + Lớp nền đỏ + Đường dữ liệu)
+                chart_vpd = (rect_blue + rect_red + line_vpd).properties(height=280)
                 st.altair_chart(chart_vpd, use_container_width=True)
 
     # --- CONTAINER 5: LỊCH SỬ DỮ LIỆU BẢNG ---
