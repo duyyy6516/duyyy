@@ -357,7 +357,8 @@ def vpd_controlled_monitor():
             selected_view_day = st.selectbox("Chọn ngày lịch sử cần kiểm tra (Biểu đồ và Bảng số liệu sẽ đồng bộ theo ngày này):", unique_days)
             
             df_all_records = pd.DataFrame(st.session_state.history)
-            df_filtered = df_all_records[df_all_records["Ngày"] == selected_view_day].iloc[::-1].copy()
+            df_filtered = df_all_records[df_all_records["Regular"] == selected_view_day] if "Regular" in df_all_records.columns else df_all_records[df_all_records["Ngày"] == selected_view_day]
+            df_filtered = df_filtered.iloc[::-1].copy()
 
         # --- BÁO CÁO PHÂN TÍCH BUỔI ---
         st.write("")
@@ -392,7 +393,7 @@ def vpd_controlled_monitor():
             with tab_vpd:
                 st.caption(f"ℹ️ Vùng màu an toàn theo [{plant_option}]: 🟦 Quá ẩm (< {vpd_min} kPa) | 🟥 Quá khô (> {vpd_max} kPa)")
                 
-                # CẬP NHẬT: Mở rộng dải biên âm xuống hẳn -5.0 và dải biên dương lên hẳn 10.0 để đổ tràn viền 100%
+                # GIẢI PHÁP ĐỔ MÀU TRÀN VIỀN 100%: Mở rộng dải tọa độ biên từ -5.0 đến 10.0 để lấp kín mọi khoảng co giãn của trục Y
                 rect_blue = alt.Chart(df_filtered).mark_rect(color='#0068C9', opacity=0.12).encode(
                     y=alt.Y(datum=-5.0),
                     y2=alt.Y2(datum=vpd_min)
