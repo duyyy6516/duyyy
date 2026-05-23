@@ -38,7 +38,6 @@ def get_smart_random_data():
     return temp, rh
 
 # --- KHỞI TẠO BIẾN TRONG SESSION STATE ---
-# Mới mở web: Đặt tất cả thông số bằng 0
 if 'temp' not in st.session_state:
     st.session_state.temp = 0.0
 if 'rh' not in st.session_state:
@@ -48,11 +47,9 @@ if 'countdown' not in st.session_state:
 if 'last_updated' not in st.session_state:
     st.session_state.last_updated = "--:--:--"
 if 'stt_counter' not in st.session_state:
-    st.session_state.stt_counter = 0 # Bắt đầu từ 0 (chưa có lần đo nào)
+    st.session_state.stt_counter = 0 
 if 'is_running' not in st.session_state:
     st.session_state.is_running = False
-
-# Mới mở web: Lịch sử hoàn toàn trống rỗng
 if 'history' not in st.session_state:
     st.session_state.history = []
 
@@ -79,7 +76,6 @@ with st.container(border=True):
     with col_btn1:
         if st.button("""▶️ Bắt đầu chạy tự động""", type="primary", use_container_width=True, disabled=st.session_state.is_running):
             st.session_state.is_running = True
-            # Nếu là lần đầu tiên bấm nút, kích hoạt lấy dữ liệu phát đầu tiên luôn
             if st.session_state.stt_counter == 0:
                 trigger_new_data()
             st.rerun()
@@ -98,7 +94,6 @@ def vpd_controlled_monitor():
         if st.session_state.countdown < 0:
             trigger_new_data()
             
-    # Hiển thị thanh tiến trình đếm ngược
     if st.session_state.is_running:
         st.write(f"⏳ Tự động đổi số sau: **{st.session_state.countdown}** giây")
         st.progress(st.session_state.countdown / 30)
@@ -116,7 +111,7 @@ def vpd_controlled_monitor():
             st.metric(label="💧 Độ ẩm", value=f"{st.session_state.rh} %" if st.session_state.stt_counter > 0 else "-- %")
         st.caption(f"⏱️ Cập nhật lúc: {st.session_state.last_updated} (Lần đo thứ: {st.session_state.stt_counter})")
 
-    # --- CONTAINER 3: KẾT QUẢ VPD & ĐÁNH GIÁ ---
+    # --- CONTAINER 3: KẾT QUẢ VPD, ĐÁNH GIÁ & GIẢI PHÁP ---
     vpd_result = calculate_vpd(st.session_state.temp, st.session_state.rh)
     
     st.write("")
@@ -124,18 +119,29 @@ def vpd_controlled_monitor():
         st.markdown("<p style='color: gray; font-size: 14px; margin-bottom: 5px;'>🎯 CHỈ SỐ VPD ĐẦU RA</p>", unsafe_allow_html=True)
         st.metric(label="Áp suất hơi thâm hụt (Vapor Pressure Deficit)", value=f"{vpd_result:.2f} kPa" if st.session_state.stt_counter > 0 else "-- kPa")
         
-        # Đánh giá môi trường tương ứng (Chỉ đánh giá khi đã bấm chạy)
+        # Logic phân tích tình huống và đưa ra giải pháp
         if st.session_state.stt_counter > 0:
+            st.markdown("**🔍 Đánh giá trạng thái & Giải pháp đề xuất:**")
+            
             if vpd_result < 0.4:
-                st.warning("""⚠️ **VPD quá thấp (Quá ẩm):** Cây khó thoát nước, dễ bị nấm bệnh.""")
+                st.warning("""⚠️ **VPD quá thấp (Môi trường quá ẩm):** Cây khó thoát nước, dễ bị ngập úng tế bào và nấm bệnh tấn công.""")
+                st.info("""💡 **Giải pháp:** Bật quạt thông gió để lưu thông không khí, kích hoạt máy hút ẩm hoặc tăng nhẹ nhiệt độ phòng nuôi.""")
+                
             elif 0.4 <= vpd_result <= 0.8:
-                st.info("""🌱 **VPD Thấp:** Phù hợp cho giai đoạn nhân giống, kích rễ, cây con.""")
+                st.info("""🌱 **VPD Thấp:** Môi trường mát mẻ ẩm vừa, rất phù hợp cho giai đoạn nhân giống, kích rễ hoặc chăm sóc cây con.""")
+                st.info("""💡 **Giải pháp:** Giữ nguyên môi trường ổn định, hạn chế xáo trộn đột ngột.""")
+                
             elif 0.8 < vpd_result <= 1.2:
-                st.success("""✅ **VPD Lý tưởng:** Môi trường hoàn hảo cho đa số các loại cây trồng lớn mạnh.""")
+                st.success("""✅ **VPD Lý tưởng:** Môi trường hoàn hảo nhất! Lỗ khí khổng mở tối ưu giúp cây hấp thụ CO2 tốt và phát triển mạnh mẽ.""")
+                st.info("""💡 **Giải pháp:** Duy trì hệ thống tưới và thông gió ở trạng thái hiện tại. Đây là trạng thái đích của mọi nhà vườn.""")
+                
             elif 1.2 < vpd_result <= 1.6:
-                st.info("""🍂 **VPD Hơi cao:** Phù hợp cho giai đoạn cây ra hoa hoặc kết trái.""")
+                st.info("""🍂 **VPD Hơi cao:** Môi trường hơi khô, đẩy nhanh tốc độ thoát hơi nước. Thích hợp cho giai đoạn thúc cây ra hoa hoặc tạo quả.""")
+                st.info("""💡 **Giải pháp:** Theo dõi sát lượng nước tưới gốc, bổ sung độ ẩm nhẹ nếu thấy chỉ số tiếp tục tăng.""")
+                
             else:
-                st.error("""🚨 **VPD quá cao (Quá khô):** Cây mất nước nhanh, dễ bị héo và đóng khí khổng.""")
+                st.error("""🚨 **VPD quá cao (Môi trường quá khô):** Cây mất nước quá nhanh, buộc phải đóng kín khí khổng để sinh tồn, khiến cây ngừng lớn.""")
+                st.info("""💡 **Giải pháp:** Kích hoạt ngay hệ thống phun sương làm mát, kéo rèm che bớt nắng và tăng lưu lượng tưới gốc cho cây.""")
         else:
             st.write("Chờ hệ thống kích hoạt...")
 
@@ -150,7 +156,7 @@ def vpd_controlled_monitor():
         else:
             st.write("Chưa có dữ liệu lịch sử.")
         
-        # Nút xóa lịch sử nhỏ gọn đặt sát góc
+        # Nút xóa lịch sử nhỏ gọn
         col_space, col_del = st.columns([4, 1])
         with col_del:
             if st.button("""🗑️ Xóa lịch sử""", type="secondary", use_container_width=True, disabled=len(st.session_state.history) == 0):
