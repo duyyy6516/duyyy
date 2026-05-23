@@ -96,7 +96,6 @@ def analyze_day_by_blocks_rt(history_list, vpd_min, vpd_max, target_date_str):
                 "Hướng Xử Lý Đề Xuất (Kỹ thuật nhà kính)": huong_xu_ly
             })
         else:
-            # Nếu chưa chạy đến buổi đó thì ẩn dòng hoặc hiển thị trạng thái chờ dữ liệu
             summary.append({
                 "Khoảng Thời Gian": block_name,
                 "VPD TB (kPa)": "--",
@@ -246,18 +245,16 @@ def vpd_controlled_monitor():
             elif msg_type == "success": st.success(trend_msg)
             else: st.info(trend_msg)
 
-    # --- CONTAINER 5: BÁO CÁO PHÂN TÍCH THỜI GIAN THỰC (ĐÃ CẬP NHẬT: XONG TỚI ĐÂU HIỆN TỚI ĐÓ) ---
+    # --- CONTAINER 5: BÁO CÁO PHÂN TÍCH THỜI GIAN THỰC ---
     if len(st.session_state.history) > 0:
         st.write("")
         with st.container(border=True):
             st.markdown("<p style='color: #2E7D32; font-size: 16px; font-weight: bold; margin-bottom: 2px;'>📊 TRẠM PHÂN TÍCH THEO BUỔI & ĐỀ XUẤT ĐIỀU HÀNH THỜI GIAN THỰC</p>", unsafe_allow_html=True)
             st.caption("📋 *Báo cáo cập nhật liên tục: Vừa chạy qua mốc giờ nào sẽ lập tức tính toán và đưa ra giải pháp kỹ thuật mốc đó.*")
             
-            # Lấy danh sách các Ngày có trong lịch sử để người dùng chọn xem
             unique_days = sorted(list(set([r["Ngày"] for r in st.session_state.history])), reverse=True)
             selected_report_day = st.selectbox("Chọn ngày để xem báo cáo:", unique_days)
             
-            # Gọi hàm phân tích thời gian thực cho ngày được chọn
             rt_report_df = analyze_day_by_blocks_rt(st.session_state.history, vpd_min, vpd_max, selected_report_day)
             st.dataframe(rt_report_df, use_container_width=True, hide_index=True)
 
@@ -270,7 +267,7 @@ def vpd_controlled_monitor():
             
             df_chart = pd.DataFrame(st.session_state.history).iloc[::-1].copy()
             
-            tab_temp, tab_rh, tab_vpd = st.tabs(["🌡️ Biểu đồ Nhiệt độ", "💧 Biểu đồ Độ ẩm", "🎯 Biểu đồ chỉ số VPD"])
+            tab_temp, tab_rh, tab_vpd, tab_combined = st.tabs(["🌡️ Biểu đồ Nhiệt độ", "💧 Biểu đồ Độ ẩm", "🎯 Biểu đồ chỉ số VPD", "📊 Biểu đồ Tổ hợp 3 chỉ số"])
             
             with tab_temp:
                 chart_temp = alt.Chart(df_chart).mark_line(color="#FF4B4B", point=True).encode(
@@ -311,6 +308,38 @@ def vpd_controlled_monitor():
                 
                 chart_vpd = (rect_blue + rect_red + line_vpd).properties(height=260).resolve_scale(y='shared')
                 st.altair_chart(chart_vpd, use_container_width=True)
+
+            with tab_combined:
+                st.caption("🔴 Đường Đỏ: Nhiệt độ (°C) | 🔵 Đường Xanh dương: Độ ẩm (%) [Trục Trái] --- 🟢 Đường Xanh lá: VPD (kPa) [Trục Phải]")
+                
+                # Khởi tạo trục nền cơ sở (Trục X)
+                base = alt.Chart(df_chart).encode(
+                    x=alt.X('Hiển thị Giờ:O', axis=alt.Axis(title="Mốc thời gian", labelAngle=0))
+                )
+                
+                # Thiết kế đường vẽ Nhiệt độ
+                line_t = base.mark_line(color='#FF4B4B', strokeDash=[3,3], point=alt.OverlayMarkDef(color='#FF4B4B')).encode(
+                    y=alt.Y('Nhiệt độ (°C):Q', axis=alt.Axis(title="Nhiệt độ (°C) / Độ ẩm (%)", titleColor='#0068C9')),
+                    tooltip=['Hiển thị Giờ', 'Nhiệt độ (°C)']
+                )
+                
+                # Thiết kế đường vẽ Độ ẩm
+                line_r = base.mark_line(color='#0068C9', point=alt.OverlayMarkDef(color='#0068C9')).encode(
+                    y=alt.Y('Độ ẩm (%):Q'),
+                    tooltip=['Hiển thị Giờ', 'Độ ẩm (%)']
+                )
+                
+                # Thiết kế đường vẽ VPD kết hợp trục Y thứ hai bên phải (Independent Dual Axis)
+                line_v = base.mark_line(color='#2E7D32', size=3, point=alt.OverlayMarkDef(color='#2E7D32')).encode(
+                    y=alt.Y('VPD (kPa):Q', axis=alt.Axis(title="Áp suất VPD (kPa)", titleColor='#2E7D32')),
+                    tooltip=['Hiển thị Giờ', 'VPD (kPa)', 'Trạng thái']
+                )
+                
+                # Gộp 3 chỉ số và ép phân tách thang đo trục Y độc lập (Trái: % và °C, Phải: kPa)
+                combined_chart = alt.layer(line_t, line_r, line_v).properties(height=260).resolve_scale(
+                    y='independent'
+                )
+                st.altair_chart(combined_chart, use_container_width=True)
 
     # --- CONTAINER 7: LỊCH SỬ DỮ LIỆU BẢNG ---
     st.write("")
