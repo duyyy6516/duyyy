@@ -215,7 +215,6 @@ def trigger_new_data(vpd_min, vpd_max, token, chat_id):
     }
     st.session_state.history.insert(0, new_record)
     
-    # 📱 TỰ ĐỘNG GỬI TIN NHẮN THEO CẤU HÌNH CỨNG TRONG CODE
     if token and chat_id:
         sol = get_quick_solution(new_vpd, vpd_min, vpd_max, current_sim_datetime.hour)
         unique_days = sorted(list(set([r["Ngày"] for r in st.session_state.history])), reverse=True)
@@ -223,7 +222,6 @@ def trigger_new_data(vpd_min, vpd_max, token, chat_id):
         history_of_latest_day = [r for r in st.session_state.history if r["Ngày"] == latest_day_in_db]
         trend, _ = predict_vpd_trend_v3(history_of_latest_day, current_sim_datetime.hour)
         
-        # Tin nhắn cấu trúc 3 dòng gọn gàng đổ thẳng về điện thoại
         telegram_msg = (
             f"🌿 *HỆ THỐNG VPD ĐÀ LẠT REALTIME*\n"
             f"⏰ Thời gian: {current_date_str} - {current_sim_datetime.strftime('%H:%M')}\n"
@@ -234,7 +232,6 @@ def trigger_new_data(vpd_min, vpd_max, token, chat_id):
         )
         send_telegram_message(token, chat_id, telegram_msg)
     
-    # 🔥 ĐÃ ĐỔI TỪ 30 PHÚT THÀNH 10 PHÚT THEO YÊU CẦU CỦA BẠN
     next_sim_datetime = current_sim_datetime + timedelta(minutes=10)
     
     if next_sim_datetime.hour == 0 and next_sim_datetime.minute == 0:
@@ -260,7 +257,7 @@ with st.container(border=True):
             st.session_state.is_running = False
             st.rerun()
 
-# --- CONTAINER 2: BẢN ĐIỀU KHIỂN CẤU HÌNH (NẰM DƯỚI NÚT ĐIỀU KHIỂN) ---
+# --- CONTAINER 2: BẢN ĐIỀU KHIỂN CẤU HÌNH ---
 st.write("")
 with st.container(border=True):
     st.markdown("<p style='color: #2E7D32; font-size: 16px; font-weight: bold; margin-bottom: 5px;'>⚙️ BẢN ĐIỀU KHIỂN CẤU HÌNH CÂY TRỒNG</p>", unsafe_allow_html=True)
@@ -369,7 +366,7 @@ def vpd_controlled_monitor():
             rt_report_df = analyze_day_by_blocks_rt(st.session_state.history, vpd_min, vpd_max, selected_view_day)
             st.dataframe(rt_report_df, use_container_width=True, hide_index=True)
 
-        # --- BIỂU ĐỒ XU HƯỚNG CHU KỲ (X-axis cấu hình tự điều chỉnh theo mật độ 10 phút) ---
+        # --- BIỂU ĐỒ XU HƯỚNG CHU KỲ (ĐÃ SỬA LỖI TRÀN VÙNG MÀU CẢNH BÁO) ---
         st.write("")
         with st.container(border=True):
             st.markdown(f"<p style='color: gray; font-size: 14px; margin-bottom: 2px;'>📈 BIỂU ĐỒ XU HƯỚNG THEO CHU KỲ - LỌC: {selected_view_day}</p>", unsafe_allow_html=True)
@@ -394,19 +391,19 @@ def vpd_controlled_monitor():
                 
             with tab_vpd:
                 st.caption(f"ℹ️ Vùng màu an toàn theo [{plant_option}]: 🟦 Quá ẩm (< {vpd_min} kPa) | 🟥 Quá khô (> {vpd_max} kPa)")
-                bg_data = pd.DataFrame([{'start_blue': 0.0, 'end_blue': vpd_min, 'start_red': vpd_max, 'end_red': 3.0}])
                 
-                rect_blue = alt.Chart(bg_data).mark_rect(color='#0068C9', opacity=0.12).encode(
-                    y=alt.Y('start_blue:Q', scale=alt.Scale(domain=[0, 3.0])), 
-                    y2=alt.Y2('end_blue:Q')
+                # Sửa thuật toán vẽ vùng màu nền dùng alt.datum giúp tự động phủ từ biên này tới biên kia của đồ thị
+                rect_blue = alt.Chart(df_filtered).mark_rect(color='#0068C9', opacity=0.12).encode(
+                    y=alt.Y().datum(0.0),
+                    y2=alt.Y2().datum(vpd_min)
                 )
-                rect_red = alt.Chart(bg_data).mark_rect(color='#FF4B4B', opacity=0.12).encode(
-                    y=alt.Y('start_red:Q', scale=alt.Scale(domain=[0, 3.0])), 
-                    y2=alt.Y2('end_red:Q')
+                rect_red = alt.Chart(df_filtered).mark_rect(color='#FF4B4B', opacity=0.12).encode(
+                    y=alt.Y().datum(vpd_max),
+                    y2=alt.Y2().datum(3.0)
                 )
                 line_vpd = alt.Chart(df_filtered).mark_line(color="#2E7D32", point=True).encode(
                     x=alt.X('Hiển thị Giờ:O', axis=alt.Axis(title="Mốc thời gian", labelAngle=-45)),
-                    y=alt.Y('VPD (kPa):Q', scale=alt.Scale(domain=[0, 3.0]), axis=alt.Axis(title="Chỉ số VPD (kPa)", grid=True)),
+                    y=alt.Y('VPD (kPa):Q', scale=alt.Scale(domain=[0, 2.0]), axis=alt.Axis(title="Chỉ số VPD (kPa)", grid=True)),
                     tooltip=['Ngày', 'Hiển thị Giờ', 'VPD (kPa)', 'Trạng thái']
                 ).interactive() 
                 
@@ -428,7 +425,7 @@ def vpd_controlled_monitor():
                 )
                 weather_layer = alt.layer(line_t, line_r)
                 line_v = base.mark_line(color="#2E7D32", size=3, point=alt.OverlayMarkDef(color='#2E7D32')).encode(
-                    y=alt.Y('VPD (kPa):Q', axis=alt.Axis(title="Áp suất VPD (kPa)", titleColor='#2E7D32'), scale=alt.Scale(domain=[0, 3.0])),
+                    y=alt.Y('VPD (kPa):Q', axis=alt.Axis(title="Áp suất VPD (kPa)", titleColor='#2E7D32'), scale=alt.Scale(domain=[0, 2.0])),
                     tooltip=['Hiển thị Giờ', 'VPD (kPa)', 'Trạng thái']
                 )
                 combined_chart = alt.layer(weather_layer, line_v).properties(height=260).resolve_scale(
