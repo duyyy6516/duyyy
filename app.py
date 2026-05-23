@@ -52,7 +52,7 @@ if 'temp' not in st.session_state:
 if 'rh' not in st.session_state:
     st.session_state.rh = 0.0
 if 'countdown' not in st.session_state:
-    st.session_state.countdown = 30  
+    st.session_state.countdown = 15  # ĐÃ ĐỔI: Khởi tạo đếm ngược từ 15 giây
 if 'is_running' not in st.session_state:
     st.session_state.is_running = False
 if 'history' not in st.session_state:
@@ -71,7 +71,7 @@ def trigger_new_data(vpd_min, vpd_max):
     
     # Lấy dữ liệu thời tiết dựa theo giờ mô phỏng hiện tại
     st.session_state.temp, st.session_state.rh = get_weather_by_time(current_sim_datetime)
-    st.session_state.countdown = 30 
+    st.session_state.countdown = 15 # ĐÃ ĐỔI: Reset bộ đếm về lại 15 giây
     st.session_state.stt_counter += 1
     
     # Tính toán VPD
@@ -93,7 +93,7 @@ def trigger_new_data(vpd_min, vpd_max):
         "Nhiệt độ (°C)": st.session_state.temp,
         "Độ ẩm (%)": st.session_state.rh,
         "VPD (kPa)": round(new_vpd, 2),
-        "Trạng thái": status_text  # Thêm cột Trạng thái mới
+        "Trạng thái": status_text
     }
     st.session_state.history.insert(0, new_record)
     
@@ -167,7 +167,7 @@ def vpd_controlled_monitor():
             
     if st.session_state.is_running:
         st.write(f"⏳ Tự động đổi số sau: **{st.session_state.countdown}** giây")
-        st.progress(st.session_state.countdown / 30)
+        st.progress(st.session_state.countdown / 15) # ĐÃ ĐỔI: Chia cho 15 để thanh tiến trình khớp với chu kỳ mới
     else:
         st.info("💡 Hệ thống đang tạm dừng. Bạn có thể thay đổi loại cây trồng hoặc ngưỡng cấu hình phía trên.")
 
