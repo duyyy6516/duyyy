@@ -177,34 +177,33 @@ def vpd_controlled_monitor():
     if len(st.session_state.history) > 0:
         st.write("")
         with st.container(border=True):
-            st.markdown("<p style='color: gray; font-size: 14px; margin-bottom: 10px;'>📈 BIỂU ĐỒ XU HƯỚNG THỜI GIAN THỰC</p>", unsafe_allow_html=True)
+            st.markdown("<p style='color: gray; font-size: 14px; margin-bottom: 10px;'>📈 BIỂU ĐỒ XU HƯỚNG THEO THỨ TỰ ĐO (STT)</p>", unsafe_allow_html=True)
             
-            # Chuẩn bị dữ liệu vẽ biểu đồ (đảo ngược lại danh sách lịch sử để thời gian chạy từ trái qua phải)
+            # Đảo ngược lại danh sách lịch sử để biểu đồ chạy từ trái (cũ) sang phải (mới)
             df_chart = pd.DataFrame(st.session_state.history).iloc[::-1]
             
-            # Sử dụng tabs để phân tách các biểu đồ riêng biệt giúp giao diện gọn gàng hơn
             tab_temp, tab_rh, tab_vpd = st.tabs(["🌡️ Biểu đồ Nhiệt độ", "💧 Biểu đồ Độ ẩm", "🎯 Biểu đồ chỉ số VPD"])
             
             with tab_temp:
-                st.caption("Biến thiên Nhiệt độ (°C) qua các lần cập nhật dữ liệu:")
-                # Tạo một DataFrame phụ lấy cột Thời gian làm trục X và Nhiệt độ làm trục Y
-                chart_temp_data = df_chart.set_index("Thời gian")[["Nhiệt độ (°C)"]]
+                st.caption("Biến thiên Nhiệt độ (°C) theo lần đo (STT):")
+                # Đổi index trục X thành 'STT' thay vì 'Thời gian' để tránh bị xoay dọc chữ
+                chart_temp_data = df_chart.set_index("STT")[["Nhiệt độ (°C)"]]
                 st.line_chart(chart_temp_data, color="#FF4B4B")
                 
             with tab_rh:
-                st.caption("Biến thiên Độ ẩm (%) qua các lần cập nhật dữ liệu:")
-                chart_rh_data = df_chart.set_index("Thời gian")[["Độ ẩm (%)"]]
+                st.caption("Biến thiên Độ ẩm (%) theo lần đo (STT):")
+                chart_rh_data = df_chart.set_index("STT")[["Độ ẩm (%)"]]
                 st.line_chart(chart_rh_data, color="#0068C9")
                 
             with tab_vpd:
-                st.caption("Biến thiên Chỉ số VPD (kPa) qua các lần cập nhật dữ liệu:")
-                chart_vpd_data = df_chart.set_index("Thời gian")[["VPD (kPa)"]]
+                st.caption("Biến thiên Chỉ số VPD (kPa) theo lần đo (STT):")
+                chart_vpd_data = df_chart.set_index("STT")[["VPD (kPa)"]]
                 st.line_chart(chart_vpd_data, color="#2E7D32")
 
-    # --- CONTAINER 5: LỊCH SỬ DU LIỆU BẢNG ---
+    # --- CONTAINER 5: LỊCH SỬ DỮ LIỆU BẢNG ---
     st.write("")
     with st.container(border=True):
-        st.markdown("<p style='color: gray; font-size: 14px; margin-bottom: 10px;'>📋 LỊCH SỬ DỮ LIỆU ĐA GHI NHẬN</p>", unsafe_allow_html=True)
+        st.markdown("<p style='color: gray; font-size: 14px; margin-bottom: 10px;'>📋 LỊCH SỬ DỮ LIỆU ĐÃ GHI NHẬN</p>", unsafe_allow_html=True)
         
         if len(st.session_state.history) > 0:
             df_history = pd.DataFrame(st.session_state.history)
