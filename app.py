@@ -27,11 +27,11 @@ if 'last_updated' not in st.session_state:
 if 'stt_counter' not in st.session_state:
     st.session_state.stt_counter = 1
 
-# QUAN TRỌNG: Biến kiểm tra hệ thống có đang chạy hay không (Mặc định là False - dừng)
+# Biến kiểm tra hệ thống có đang chạy hay không (Mặc định ban đầu là False - dừng)
 if 'is_running' not in st.session_state:
     st.session_state.is_running = False
 
-# Khởi tạo danh sách lưu lịch sử
+# Khởi tạo danh sách lưu lịch sử dữ liệu
 if 'history' not in st.session_state:
     first_vpd = calculate_vpd(st.session_state.temp, st.session_state.rh)
     st.session_state.history = [{
@@ -76,32 +76,59 @@ with col_btn2:
 
 st.write("---")
 
-# --- ĐOẠN CODE CHẠY LẠI MỖI 1 GIÂY (CHỈ HOẠT ĐỘNG KHI IS_RUNNING = TRUE) ---
-# Nếu đang chạy thì fragment sẽ quét mỗi 1 giây, nếu đang dừng thì quét mỗi 999999 giây (coi như đứng im)
+# --- ĐOẠN CODE CHẠY LẠI MỖI 1 GIÂY ---
 run_interval = 1 if st.session_state.is_running else 999999
 
 @st.fragment(run_every=run_interval)
 def vpd_controlled_monitor():
-    # 1. Xử lý đếm ngược nếu trạng thái đang bật
+    # 1. Xử lý giảm số giây đếm ngược nếu trạng thái đang bật
     if st.session_state.is_running:
         st.session_state.countdown -= 1
         if st.session_state.countdown < 0:
             trigger_new_data()
             
-    # 2. HIỂN THỊ TRẠNG THÁI & ĐỒNG HỒ
+    # 2. HIỂN THỊ TRẠNG THÁI & ĐỒNG HỒ ĐẾM NGƯỢC
     if st.session_state.is_running:
-        st.success(f"🟢 Hệ thống đang HOẠT ĐỘNG tự động")
+        st.success("🟢 Hệ thống đang HOẠT ĐỘNG tự động")
         st.write(f"### ⏳ Tự động đổi số sau: **{st.session_state.countdown}** giây")
         st.progress(st.session_state.countdown / 30)
     else:
-        st.error(f"🔴 Hệ thống đang TẠM DỪNG (Hãy bấm Bắt đầu ở trên để chạy)")
-        st.write(f"### ⏳ Đang chờ kích hoạt...")
+        st.error("🔴 Hệ thống đang TẠM DỪNG (Hãy bấm Bắt đầu ở trên để chạy)")
+        st.write("### ⏳ Đang chờ kích hoạt...")
         st.progress(1.0)
         
     st.caption(f"🔄 Dữ liệu cập nhật gần nhất: {st.session_state.last_updated} (Lần thứ: {st.session_state.stt_counter})")
     st.write("---")
 
-    # 3. HIỂN THỊ THÔNG SỐ HIỆN TẠI
+    # 3. HIỂN THỊ THÔNG SỐ CƠ BẢN
     col1, col2 = st.columns(2)
     with col1:
-        st.metric(label="🌡️ Nhi
+        st.metric(label="🌡️ Nhiệt độ hiện tại", value=f"{st.session_state.temp} °C")
+    with col2:
+        st.metric(label="💧 Độ ẩm hiện tại", value=f"{st.session_state.rh} %")
+        
+    vpd_result = calculate_vpd(st.session_state.temp, st.session_state.rh)
+    
+    st.write("---")
+    st.subheader("Chỉ số VPD hiện tại:")
+    st.metric(label="Áp suất hơi thâm hụt (Vapor Pressure Deficit)", value=f"{vpd_result:.2f} kPa")
+    
+    # 4. ĐÁNH GIÁ MÔI TRƯỜNG DỰA TRÊN VPD
+    if vpd_result < 0.4:
+        st.warning("⚠️ **VPD quá thấp (Môi trường quá ẩm):** Cây khó thoát nước.")
+    elif 0.4 <= vpd_result <= 0.8:
+        st.info("🌱 **VPD Thấp:** Phù hợp cho giai đoạn nhân giống, kích rễ.")
+    elif 0.8 < vpd_result <= 1.2:
+        st.success("✅ **VPD Lý tưởng:** Môi trường hoàn hảo.")
+    elif 1.2 < vpd_result <= 1.6:
+        st.info("🍂 **VPD Hơi cao:** Phù hợp cho giai đoạn ra hoa.")
+    else:
+        st.error("🚨 **VPD quá cao (Môi trường quá khô):** Cây mất nước nhanh.")
+
+    # Nút bấm đổi số khẩn cấp bằng tay
+    if st.button("🎲 Random Thủ Công (1 lần)", type="secondary"):
+        trigger_new_data()
+        st.rerun()
+
+    # --- 5. HIỂN THỊ LỊCH SỬ DỮ LIỆU ---
+    st.write("
