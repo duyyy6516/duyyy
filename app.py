@@ -201,11 +201,12 @@ def vpd_controlled_monitor():
         else:
             st.write("Chờ hệ thống kích hoạt...")
 
-    # --- CONTAINER NEW: BIỂU ĐỒ XU HƯỚNG CHU KỲ NGÀY ĐÊM ---
+    # --- CONTAINER NEW: BIỂU ĐỒ XU HƯỚNG TƯƠNG TÁC THÔNG MINH ---
     if len(st.session_state.history) > 0:
         st.write("")
         with st.container(border=True):
-            st.markdown("<p style='color: gray; font-size: 14px; margin-bottom: 10px;'>📈 BIỂU ĐỒ XU HƯỚNG CHU KỲ NGÀY & ĐÊM (Trục X theo mốc giờ)</p>", unsafe_allow_html=True)
+            st.markdown("<p style='color: gray; font-size: 14px; margin-bottom: 2px;'>📈 BIỂU ĐỒ XU HƯỚNG ĐỒNG BỘ CHU KỲ</p>", unsafe_allow_html=True)
+            st.caption("💡 *Mẹo xem:* Sử dụng **cuộn chuột** để phóng to/thu nhỏ, **giữ chuột trái** rê qua lại để dịch chuyển biểu đồ.")
             
             df_chart = pd.DataFrame(st.session_state.history).iloc[::-1]
             
@@ -216,7 +217,7 @@ def vpd_controlled_monitor():
                     x=alt.X('Thời gian mô phỏng:O', axis=alt.Axis(title="Mốc giờ trong ngày", labelAngle=0)),
                     y=alt.Y('Nhiệt độ (°C):Q', scale=alt.Scale(zero=False)),
                     tooltip=['STT', 'Thời gian mô phỏng', 'Nhiệt độ (°C)']
-                ).properties(height=280)
+                ).properties(height=280).interactive()  # THÊM: .interactive() để Zoom/Pan tự do
                 st.altair_chart(chart_temp, use_container_width=True)
                 
             with tab_rh:
@@ -224,37 +225,33 @@ def vpd_controlled_monitor():
                     x=alt.X('Thời gian mô phỏng:O', axis=alt.Axis(title="Mốc giờ trong ngày", labelAngle=0)),
                     y=alt.Y('Độ ẩm (%):Q', scale=alt.Scale(zero=False)),
                     tooltip=['STT', 'Thời gian mô phỏng', 'Độ ẩm (%)']
-                ).properties(height=280)
+                ).properties(height=280).interactive()  # THÊM: .interactive() để Zoom/Pan tự do
                 st.altair_chart(chart_rh, use_container_width=True)
                 
             with tab_vpd:
                 st.caption(f"ℹ️ Vùng màu tự động theo [{plant_option}]: 🟦 Quá ẩm (< {vpd_min} kPa) | 🟥 Quá khô (> {vpd_max} kPa)")
                 
-                # SỬA ĐỔI QUAN TRỌNG: Gán giá trị vpd_min và vpd_max động trực tiếp vào DataFrame cấu hình nền để Altair vẽ chính xác tuyệt đối
                 bg_data = pd.DataFrame([{
                     'start_blue': 0.0, 'end_blue': vpd_min,
                     'start_red': vpd_max, 'end_red': 3.0
                 }])
                 
-                # 1. Vẽ dải màu xanh dương (Dưới vpd_min)
                 rect_blue = alt.Chart(bg_data).mark_rect(color='#0068C9', opacity=0.15).encode(
                     y=alt.Y('start_blue:Q'), y2=alt.Y2('end_blue:Q')
                 )
                 
-                # 2. Vẽ dải màu đỏ (Trên vpd_max)
                 rect_red = alt.Chart(bg_data).mark_rect(color='#FF4B4B', opacity=0.15).encode(
                     y=alt.Y('start_red:Q'), y2=alt.Y2('end_red:Q')
                 )
                 
-                # 3. Đường đồ thị VPD chính
                 line_vpd = alt.Chart(df_chart).mark_line(color="#2E7D32", point=True).encode(
                     x=alt.X('Thời gian mô phỏng:O', axis=alt.Axis(title="Mốc giờ trong ngày", labelAngle=0)),
                     y=alt.Y('VPD (kPa):Q', scale=alt.Scale(domain=[0, 3.0]), axis=alt.Axis(title="VPD (kPa)")),
-                    tooltip=['STT', 'Thời gian mô phỏng', 'VPD (kPa)']
+                    tooltip=['STT', 'Thời gian mô phỏng', 'VPD (kPa)', 'Trạng thái']
                 )
                 
-                # Tích hợp các lớp (Lớp nền xanh + Lớp nền đỏ + Đường dữ liệu)
-                chart_vpd = (rect_blue + rect_red + line_vpd).properties(height=280)
+                # THÊM: Tích hợp thuộc tính tương tác nâng cao cuối lớp tổng hợp chart_vpd
+                chart_vpd = (rect_blue + rect_red + line_vpd).properties(height=280).interactive()
                 st.altair_chart(chart_vpd, use_container_width=True)
 
     # --- CONTAINER 5: LỊCH SỬ DỮ LIỆU BẢNG ---
