@@ -51,7 +51,7 @@ def analyze_day_by_blocks(history_list, vpd_min, vpd_max, target_date_str):
     }
     
     for r in day_data:
-        time_obj = datetime.strptime(r["Thời gian mô phỏng"], "%H:%M")
+        time_obj = datetime.strptime(r["Hiển thị Giờ"], "%H:%M")
         hour = time_obj.hour
         vpd_val = r["VPD (kPa)"]
         
@@ -69,7 +69,6 @@ def analyze_day_by_blocks(history_list, vpd_min, vpd_max, target_date_str):
         if vpd_list:
             avg_vpd = sum(vpd_list) / len(vpd_list)
             
-            # Phân loại trạng thái và cấu hình hướng xử lý riêng cho từng buổi
             if avg_vpd < vpd_min:
                 danh_gia = "🟦 Quá ẩm"
                 if "Sáng" in block_name:
@@ -78,11 +77,9 @@ def analyze_day_by_blocks(history_list, vpd_min, vpd_max, target_date_str):
                     huong_xu_ly = "Trời âm u/mưa khép kín. Bật quạt đối lưu mạnh, hạn chế tưới nước dầm gốc."
                 else:
                     huong_xu_ly = "Ẩm độ ban đêm rất cao. Tuyệt đối không tưới muộn sau 16h; bật quạt thông gió định kỳ."
-            
             elif vpd_min <= avg_vpd <= vpd_max:
                 danh_gia = "🟩 Lý tưởng"
                 huong_xu_ly = "Môi trường hoàn hảo. Duy trì chế độ thông thoáng tự nhiên và lịch tưới hiện tại."
-            
             else:
                 danh_gia = "🟥 Quá khô"
                 if "Sáng" in block_name:
@@ -146,7 +143,7 @@ if 'history' not in st.session_state: st.session_state.history = []
 if 'stt_counter' not in st.session_state: st.session_state.stt_counter = 0 
 if 'daily_reports' not in st.session_state: st.session_state.daily_reports = {} 
 
-# KHỞI TẠO THỜI GIAN MÔ PHỎNG (Bắt đầu từ Ngày 1 lúc 07:00 Sáng)
+# KHỞI TẠO THỜI GIAN MÔ PHỎNG
 if 'simulated_time' not in st.session_state:
     st.session_state.simulated_time = "2026-05-24 07:00:00"
 
@@ -165,7 +162,8 @@ def trigger_new_data(vpd_min, vpd_max):
     new_record = {
         "STT": st.session_state.stt_counter,
         "Ngày": current_date_str,
-        "Thời gian mô phỏng": current_sim_datetime.strftime("%H:%M"),
+        "Thời gian mô phỏng": current_sim_datetime, # Lưu đối tượng datetime nguyên bản cho biểu đồ (:T)
+        "Hiển thị Giờ": current_sim_datetime.strftime("%H:%M"), # Dành cho bảng lịch sử dữ liệu dễ xem
         "Nhiệt độ (°C)": st.session_state.temp,
         "Độ ẩm (%)": st.session_state.rh,
         "VPD (kPa)": round(new_vpd, 2),
@@ -175,18 +173,15 @@ def trigger_new_data(vpd_min, vpd_max):
     
     next_sim_datetime = current_sim_datetime + timedelta(minutes=30)
     
-    # KHI KẾT THÚC NGÀY (Nhảy qua 24:00 đêm)
     if next_sim_datetime.hour == 0 and next_sim_datetime.minute == 0:
         report_df = analyze_day_by_blocks(st.session_state.history, vpd_min, vpd_max, current_date_str)
         if report_df is not None:
             st.session_state.daily_reports[current_date_str] = report_df
-            
-        # Tự động chuyển kim đồng hồ sang 7h sáng hôm sau để tiếp tục chu kỳ ngày mới
         next_sim_datetime = next_sim_datetime + timedelta(hours=7)
         
     st.session_state.simulated_time = next_sim_datetime.strftime("%Y-%m-%d %H:%M:%S")
 
-# --- CONTAINER 1: CẤU HÌNH THEO CÂY TRỒNG ĐÀ LẠT ---
+# --- CONTAINER 1: CẤU HÌNH THEO CÂY TRỒNG ---
 with st.container(border=True):
     st.markdown("<p style='color: #2E7D32; font-size: 15px; font-weight: bold; margin-bottom: 2px;'>⚙️ CẤU HÌNH NGƯỠNG VPD THEO CÂY TRỒNG ĐÀ LẠT</p>", unsafe_allow_html=True)
     plant_option = st.selectbox(
@@ -255,18 +250,15 @@ def vpd_controlled_monitor():
             elif msg_type == "success": st.success(trend_msg)
             else: st.info(trend_msg)
 
-    # --- CONTAINER 5: BÁO CÁO PHÂN TÍCH TỔNG KẾT THEO BUỔI KÈM HƯỚNG XỬ LÝ (ĐÃ CẬP NHẬT) ---
+    # --- CONTAINER 5: BÁO CÁO PHÂN TÍCH TỔNG KẾT THEO BUỔI KÈM HƯỚNG XỬ LÝ ---
     if st.session_state.daily_reports:
         st.write("")
         with st.container(border=True):
             st.markdown("<p style='color: #2E7D32; font-size: 16px; font-weight: bold; margin-bottom: 2px;'>📊 TRẠM PHÂN TÍCH DIỆN MẠO NHÀ KÍNH & ĐỀ XUẤT ĐIỀU HÀNH</p>", unsafe_allow_html=True)
-            st.caption("📋 *Báo cáo tự động tổng hợp chi tiết giải pháp kỹ thuật sau khi chạy hết chu kỳ 24h đêm:*")
             selected_report_day = st.selectbox("Chọn ngày tổng kết để xem phân tích:", list(st.session_state.daily_reports.keys()))
-            
-            # Hiển thị bảng dữ liệu có chứa cột Hướng xử lý
             st.dataframe(st.session_state.daily_reports[selected_report_day], use_container_width=True, hide_index=True)
 
-    # --- CONTAINER 6: BIỂU ĐỒ XU HƯỚNG TƯƠNG TÁC ---
+    # --- CONTAINER 6: BIỂU ĐỒ XU HƯỚNG TƯƠNG TÁC (ĐÃ SỬA LỖI ĐỊNH DẠNG TRỤC X) ---
     if len(st.session_state.history) > 0:
         st.write("")
         with st.container(border=True):
@@ -276,16 +268,16 @@ def vpd_controlled_monitor():
             tab_temp, tab_rh, tab_vpd = st.tabs(["🌡️ Biểu đồ Nhiệt độ", "💧 Biểu đồ Độ ẩm", "🎯 Biểu đồ chỉ số VPD"])
             with tab_temp:
                 chart_temp = alt.Chart(df_chart).mark_line(color="#FF4B4B", point=True).encode(
-                    x=alt.X('Thời gian mô phỏng:O', axis=alt.Axis(title="Mốc thời gian", labelAngle=0)),
+                    x=alt.X('Thời gian mô phỏng:T', axis=alt.Axis(title="Mốc thời gian", format='%H:%M')), # SỬA: :T thay cho :O để chạy được .interactive()
                     y=alt.Y('Nhiệt độ (°C):Q', scale=alt.Scale(zero=False)),
-                    tooltip=['Ngày', 'Thời gian mô phỏng', 'Nhiệt độ (°C)']
+                    tooltip=['Ngày', 'Hiển thị Giờ', 'Nhiệt độ (°C)']
                 ).properties(height=260).interactive()
                 st.altair_chart(chart_temp, use_container_width=True)
             with tab_rh:
                 chart_rh = alt.Chart(df_chart).mark_line(color="#0068C9", point=True).encode(
-                    x=alt.X('Thời gian mô phỏng:O', axis=alt.Axis(title="Mốc thời gian", labelAngle=0)),
+                    x=alt.X('Thời gian mô phỏng:T', axis=alt.Axis(title="Mốc thời gian", format='%H:%M')), # SỬA: :T thay cho :O
                     y=alt.Y('Độ ẩm (%):Q', scale=alt.Scale(zero=False)),
-                    tooltip=['Ngày', 'Thời gian mô phỏng', 'Độ ẩm (%)']
+                    tooltip=['Ngày', 'Hiển thị Giờ', 'Độ ẩm (%)']
                 ).properties(height=260).interactive()
                 st.altair_chart(chart_rh, use_container_width=True)
             with tab_vpd:
@@ -293,9 +285,9 @@ def vpd_controlled_monitor():
                 rect_blue = alt.Chart(bg_data).mark_rect(color='#0068C9', opacity=0.15).encode(y=alt.Y('start_blue:Q'), y2=alt.Y2('end_blue:Q'))
                 rect_red = alt.Chart(bg_data).mark_rect(color='#FF4B4B', opacity=0.15).encode(y=alt.Y('start_red:Q'), y2=alt.Y2('end_red:Q'))
                 line_vpd = alt.Chart(df_chart).mark_line(color="#2E7D32", point=True).encode(
-                    x=alt.X('Thời gian mô phỏng:O', axis=alt.Axis(title="Mốc thời gian", labelAngle=0)),
+                    x=alt.X('Thời gian mô phỏng:T', axis=alt.Axis(title="Mốc thời gian", format='%H:%M')), # SỬA: :T thay cho :O
                     y=alt.Y('VPD (kPa):Q', scale=alt.Scale(domain=[0, 3.0])),
-                    tooltip=['Ngày', 'Thời gian mô phỏng', 'VPD (kPa)', 'Trạng thái']
+                    tooltip=['Ngày', 'Hiển thị Giờ', 'VPD (kPa)', 'Trạng thái']
                 )
                 st.altair_chart((rect_blue + rect_red + line_vpd).properties(height=260).interactive(), use_container_width=True)
 
@@ -304,7 +296,11 @@ def vpd_controlled_monitor():
     with st.container(border=True):
         st.markdown("<p style='color: gray; font-size: 14px; margin-bottom: 10px;'>📋 LỊCH SỬ DỮ LIỆU ĐÃ GHI NHẬN</p>", unsafe_allow_html=True)
         if len(st.session_state.history) > 0:
-            st.dataframe(pd.DataFrame(st.session_state.history), use_container_width=True, hide_index=True)
+            # Tạo bản sao hiển thị để rút gọn cột thời gian dạng chuỗi xuông dễ nhìn trên bảng
+            df_display = pd.DataFrame(st.session_state.history).copy()
+            df_display["Thời gian mô phỏng"] = df_display["Hiển thị Giờ"]
+            df_display = df_display.drop(columns=["Hiển thị Giờ"])
+            st.dataframe(df_display, use_container_width=True, hide_index=True)
         else:
             st.write("Chưa có dữ liệu lịch sử.")
         
