@@ -37,6 +37,27 @@ def get_weather_by_time(sim_time):
         rh = round(random.uniform(80.0, 95.0), 1)
     return temp, rh
 
+# --- HÀM TRA CỨU GIẢI PHÁP REALTIME NHANH THEO TIẾNG ---
+def get_quick_solution(vpd_val, vpd_min, vpd_max, hour):
+    if vpd_val < vpd_min: # Quá ẩm
+        if 7 <= hour < 11:
+            return "Mở bạt hông muộn hoặc bật quạt gió để xua tan sương ẩm ban đêm đọng trên lá."
+        elif 11 <= hour < 19:
+            return "Trời ẩm u hoặc có mưa. Bật quạt đối lưu mạnh, đóng vách ngăn nước mưa và hạn chế tưới gốc dầm dề."
+        else:
+            return "Ẩm độ ban đêm rất cao. Tuyệt đối không tưới muộn sau 16h; bật thông gió định kỳ."
+    elif vpd_min <= vpd_val <= vpd_max: # Lý tưởng
+        return "Môi trường hoàn hảo. Duy trì chế độ thông thoáng tự nhiên và lịch tưới hiện tại của nhà kính."
+    else: # Quá khô
+        if 7 <= hour < 11:
+            return "Nắng lên nhanh làm nhiệt tăng. Kích hoạt nhẹ tưới nhỏ giọt để cấp ẩm vùng rễ."
+        elif 11 <= hour < 15:
+            return "Cao điểm nắng nóng! Kéo lưới đen cắt nắng (giảm 30%), phun sương mịn định kỳ 5-10 phút/lần."
+        elif 15 <= hour < 19:
+            return "Nhiệt muộn vẫn cao. Bổ sung một lượt phun sương ngắn để hạ nhiệt trước khi đóng vách kính."
+        else:
+            return "Hiện tượng nhiệt tăng bất thường ban đêm. Kiểm tra thiết bị sưởi hoặc đóng kín vách ngăn gió."
+
 # --- HÀM PHÂN TÍCH THỜI GIAN THỰC THEO BUỔI ---
 def analyze_day_by_blocks_rt(history_list, vpd_min, vpd_max, target_date_str):
     day_data = [r for r in history_list if r["Ngày"] == target_date_str]
@@ -69,25 +90,18 @@ def analyze_day_by_blocks_rt(history_list, vpd_min, vpd_max, target_date_str):
             
             if avg_vpd < vpd_min:
                 danh_gia = "🟦 Quá ẩm"
-                if "Sáng" in block_name:
-                    huong_xu_ly = "Mở bạt hông muộn hoặc bật quạt gió để xua tan sương ẩm ban đêm đọng trên lá."
-                elif "Trưa" in block_name or "Chiều" in block_name:
-                    huong_xu_ly = "Trời ẩm u/mưa khép vách. Bật quạt đối lưu mạnh, hạn chế tưới gốc dầm dề."
-                else:
-                    huong_xu_ly = "Ẩm độ ban đêm rất cao. Tuyệt đối không tưới muộn sau 16h; bật thông gió định kỳ."
+                if "Sáng" in block_name: huong_xu_ly = "Mở bạt hông muộn hoặc bật quạt gió để xua tan sương ẩm ban đêm đọng trên lá."
+                elif "Trưa" in block_name or "Chiều" in block_name: huong_xu_ly = "Trời ẩm u/mưa khép vách. Bật quạt đối lưu mạnh, hạn chế tưới gốc dầm dề."
+                else: huong_xu_ly = "Ẩm độ ban đêm rất cao. Tuyệt đối không tưới muộn sau 16h; bật thông gió định kỳ."
             elif vpd_min <= avg_vpd <= vpd_max:
                 danh_gia = "🟩 Lý tưởng"
                 huong_xu_ly = "Môi trường hoàn hảo. Duy trì chế độ thông thoáng tự nhiên và lịch tưới hiện tại."
             else:
                 danh_gia = "🟥 Quá khô"
-                if "Sáng" in block_name:
-                    huong_xu_ly = "Nắng lên nhanh làm nhiệt tăng. Kích hoạt nhẹ tưới nhỏ giọt để cấp ẩm vùng rễ."
-                elif "Trưa" in block_name:
-                    huong_xu_ly = "Cao điểm nắng nóng! Kéo lưới đen cắt nắng (giảm 30%), phun sương mịn 5-10 phút/lần."
-                elif "Chiều" in block_name:
-                    huong_xu_ly = "Nhiệt muộn vẫn cao. Bổ sung một lượt phun sương ngắn để hạ nhiệt trước khi đóng vách."
-                else:
-                    huong_xu_ly = "Hiện tượng bất thường ban đêm. Kiểm tra thiết bị sưởi hoặc đóng kín vách ngăn gió."
+                if "Sáng" in block_name: huong_xu_ly = "Nắng lên nhanh làm nhiệt tăng. Kích hoạt nhẹ tưới nhỏ giọt để cấp ẩm vùng rễ."
+                elif "Trưa" in block_name: huong_xu_ly = "Cao điểm nắng nóng! Kéo lưới đen cắt nắng (giảm 30%), phun sương mịn 5-10 phút/lần."
+                elif "Chiều" in block_name: huong_xu_ly = "Nhiệt muộn vẫn cao. Bổ sung một lượt phun sương ngắn để hạ nhiệt trước khi đóng vách."
+                else: huong_xu_ly = "Hiện tượng bất thường ban đêm. Kiểm tra thiết bị sưởi hoặc đóng kín vách ngăn gió."
             
             summary.append({
                 "Khoảng Thời Gian": block_name,
@@ -107,7 +121,7 @@ def analyze_day_by_blocks_rt(history_list, vpd_min, vpd_max, target_date_str):
 # --- HÀM DỰ BÁO XU HƯỚNG ---
 def predict_vpd_trend_v3(filtered_history, vpd_min, vpd_max):
     if len(filtered_history) < 4:
-        return "🔄 Hệ thống đang tích lũy thêm số liệu để tính xu hướng...", "info"
+        return "Hệ thống đang tích lũy thêm số liệu để tính toán...", "info"
     v0 = filtered_history[0]["VPD (kPa)"]
     v1 = filtered_history[1]["VPD (kPa)"]
     v2 = filtered_history[2]["VPD (kPa)"]
@@ -120,17 +134,17 @@ def predict_vpd_trend_v3(filtered_history, vpd_min, vpd_max):
     
     if vpd_min <= v0 <= vpd_max:
         if (v0 - vpd_min <= buffer) and is_trending_down:
-            return f"🔮 DỰ BÁO SỚM: Chỉ số VPD đang đi xuống tiến sát biên dưới. Môi trường SẮP QUÁ ẨM!", "warning"
+            return "Chỉ số đang giảm nhanh tiến sát biên dưới. Môi trường SẮP BỊ QUÁ ẨM!", "warning"
         elif (vpd_max - v0 <= buffer) and is_trending_up:
-            return f"🔮 DỰ BÁO SỚM: Chỉ số VPD đang đi lên tiến sát biên trên. Môi trường SẮP QUÁ KHÔ!", "error"
+            return "Chỉ số đang tăng nhanh tiến sát biên trên. Môi trường SẮP BỊ QUÁ KHÔ!", "error"
         else:
-            hướng = "📈 xu hướng tăng" if is_trending_up else "📉 xu hướng giảm"
-            return f"🔮 DỰ BÁO XU HƯỚNG: Chỉ số đi theo {hướng} nhưng vẫn nằm an toàn.", "success"
+            hướng = "tăng ổn định" if is_trending_up else "giảm an toàn"
+            return f"Chỉ số đi theo xu hướng {hướng} và nằm trong vùng an toàn.", "success"
     else:
         if v0 < vpd_min:
-            return f"🔮 DỰ BÁO XU HƯỚNG: Hệ thống đang bị quá ẩm, cần xử lý thoát ẩm.", "warning"
+            return "VPD đang nằm sâu trong vùng quá ẩm, xu hướng cần tăng thông thoáng để thoát ẩm.", "warning"
         else:
-            return f"🔮 DỰ BÁO XU HƯỚNG: Hệ thống đang bị quá khô, cần bổ sung phun sương hạ nhiệt.", "error"
+            return "VPD đang nằm ở mức quá khô, xu hướng cần bổ sung phun sương để kéo hạ nhiệt.", "error"
 
 # --- KHỞI TẠO BIẾN TRONG SESSION STATE ---
 if 'temp' not in st.session_state: st.session_state.temp = 0.0
@@ -254,16 +268,16 @@ def vpd_controlled_monitor():
         with col1: st.metric(label="🌡️ Nhiệt độ", value=f"{st.session_state.temp} °C" if st.session_state.stt_counter > 0 else "-- °C")
         with col2: st.metric(label="💧 Độ ẩm", value=f"{st.session_state.rh} %" if st.session_state.stt_counter > 0 else "-- %")
 
-    # --- ĐỔI MỚI: CONTAINER 4 - HIỂN THỊ KẾT QUẢ VPD & XU HƯỚNG GỌN GÀNG THEO DÒNG ---
+    # --- ĐỊNH DẠNG THEO THỨ TỰ YÊU CẦU: TRẠNG THÁI -> GIẢI PHÁP -> XU HƯỚNG ---
     vpd_result = calculate_vpd(st.session_state.temp, st.session_state.rh)
     st.write("")
     with st.container(border=True):
-        st.markdown("<p style='color: #2E7D32; font-size: 16px; font-weight: bold; margin-bottom: 8px;'>🎯 THEO DÕI CHỈ SỐ VPD & XU HƯỚNG HỆ THỐNG</p>", unsafe_allow_html=True)
+        st.markdown("<p style='color: #2E7D32; font-size: 16px; font-weight: bold; margin-bottom: 8px;'>🎯 HỆ THỐNG PHÂN TÍCH & ĐIỀU HÀNH VPD REALTIME</p>", unsafe_allow_html=True)
         
         if st.session_state.stt_counter == 0:
             st.info("📊 Đang chờ hệ thống bắt đầu kích hoạt phát số...")
         else:
-            # Xác định trạng thái chữ và màu sắc đi kèm
+            # Phân loại màu sắc
             if vpd_result < vpd_min:
                 status_lbl = "🟦 QUÁ ẨM"
                 text_color = "#0068C9"
@@ -274,17 +288,20 @@ def vpd_controlled_monitor():
                 status_lbl = "🟥 QUÁ KHÔ"
                 text_color = "#FF4B4B"
                 
-            # DÒNG 1: Ghi nhận chỉ số và trạng thái khô/ẩm
-            st.markdown(f"**🔹 Chỉ số hiện tại:** <span style='font-size: 18px; color: {text_color}; font-weight: bold;'>{vpd_result:.2f} kPa</span> —— Trạng thái: **{status_lbl}**", unsafe_allow_html=True)
-            
-            # Khởi tạo dữ liệu phục vụ bộ lọc
+            # Lấy thông tin ngày hiện tại để làm cơ sở tính xu hướng
             unique_days = sorted(list(set([r["Ngày"] for r in st.session_state.history])), reverse=True)
             latest_day_in_db = unique_days[0] if unique_days else current_date_display
             history_of_latest_day = [r for r in st.session_state.history if r["Ngày"] == latest_day_in_db]
             
-            # DÒNG 2: Dự báo xu hướng ngay bên dưới dòng 1
+            # Tra cứu giải pháp xử lý kỹ thuật tương ứng với mốc giờ hiện tại
+            sol_text = get_quick_solution(vpd_result, vpd_min, vpd_max, current_sim_dt.hour)
+            # Tra cứu xu hướng phát triển
             trend_msg, msg_type = predict_vpd_trend_v3(history_of_latest_day, vpd_min, vpd_max)
-            st.markdown(f"**🔹 Phân tích:** {trend_msg}")
+            
+            # HIỂN THỊ ĐÚNG 3 DÒNG THEO THỨ TỰ ƯU TIÊN
+            st.markdown(f"**1️⃣ Trạng thái hệ thống:** Chỉ số hiện tại đạt <span style='font-size: 16px; color: {text_color}; font-weight: bold;'>{vpd_result:.2f} kPa</span> —— Phân loại: **{status_lbl}**", unsafe_allow_html=True)
+            st.markdown(f"**2️⃣ Hướng giải pháp đề xuất:** *{sol_text}*")
+            st.markdown(f"**3️⃣ Xu hướng vận hành tiếp theo:** {trend_msg}")
 
     # --- BỘ LỌC LƯU TRỮ TRUNG TÂM ---
     if len(st.session_state.history) > 0:
