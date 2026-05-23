@@ -6,6 +6,13 @@ import pandas as pd
 import altair as alt
 import requests
 
+# =================================================================
+# ⚙️ CẤU HÌNH BẢO MẬT TELEGRAM ĐÃ GHIM CỐ ĐỊNH (ẨN KHỎI GIAO DIỆN)
+# =================================================================
+TELE_TOKEN = "8917951413:AAE6LKUEfYEYiQrFWGoKsQn0tumZc_XbcHg"
+TELE_CHAT_ID = "8924137204"
+# =================================================================
+
 # Cấu hình trang web Streamlit
 st.set_page_config(page_title="Hệ thống giám sát VPD Đà Lạt", page_icon="🌿", layout="centered")
 
@@ -77,7 +84,7 @@ def get_quick_solution(vpd_val, vpd_min, vpd_max, hour):
 
 # --- HÀM PHÂN TÍCH THỜI GIAN THỰC THEO BUỔI ---
 def analyze_day_by_blocks_rt(history_list, vpd_min, vpd_max, target_date_str):
-    day_data = [r for r in history_list if r["Ngày"] == target_date_str]
+    day_data = [r for r in history_list if r["Nancy"] == target_date_str] if "Nancy" in pd.DataFrame(history_list).columns else [r for r in history_list if r["Ngày"] == target_date_str]
     
     blocks = {
         "🌅 Sáng (07h-11h)": [],
@@ -149,7 +156,7 @@ def predict_vpd_trend_v3(filtered_history, current_hour):
     else:
         return "Giai đoạn đêm và rạng sáng. Không có bức xạ mặt trời, nhiệt độ tiếp tục hạ thấp và độ ẩm sẽ bão hòa tiến sát mốc 95%.", "info"
 
-# --- KHỞI TẠO BIẾN TRONG SESSION STATE ---
+# --- KHỔI TẠO BIẾN TRONG SESSION STATE ---
 if 'temp' not in st.session_state: st.session_state.temp = 0.0
 if 'rh' not in st.session_state: st.session_state.rh = 0.0
 if 'countdown' not in st.session_state: st.session_state.countdown = 15 
@@ -180,14 +187,7 @@ with st.sidebar:
     vpd_min, vpd_max = vpd_range
 
     st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
-    st.markdown("<h4 style='color: #0088cc;'>🤖 KẾT NỐI TELEGRAM BOT</h4>", unsafe_allow_html=True)
-    
-    # Đã cập nhật Token mới của bạn ở đây
-    tele_token = st.text_input("Telegram Bot Token:", value="8917951413:AAE6LKUEfYEYiQrFWGoKsQn0tumZc_XbcHg", type="password")
-    # Ô nhập Chat ID cá nhân chính chủ
-    tele_chat_id = st.text_input("Telegram Chat ID chính chủ của bạn:", value="", placeholder="Dán ID lấy từ @userinfobot vào đây")
-    
-    st.warning("⚠️ Chú ý: Hãy điền Chat ID lấy từ @userinfobot vào ô trống phía trên để nhận được tin nhắn báo động!")
+    st.success("🤖 Hệ thống Telegram Bot: Đã được kích hoạt ngầm bằng Token cá nhân của bạn thành công!")
 
 # --- HÀM TẠO LẬP NGÀY MỚI KHI BẤM CHẠY TIẾP ---
 def setup_next_day():
@@ -234,7 +234,7 @@ def trigger_new_data(vpd_min, vpd_max, token, chat_id):
     }
     st.session_state.history.insert(0, new_record)
     
-    # 📱 CHUẨN BỊ NỘI DUNG VÀ GỬI ĐI QUA TELEGRAM BOT
+    # 📱 TỰ ĐỘNG GỬI TIN NHẮN THEO CẤU HÌNH CỨNG TRONG CODE
     if token and chat_id:
         sol = get_quick_solution(new_vpd, vpd_min, vpd_max, current_sim_datetime.hour)
         unique_days = sorted(list(set([r["Ngày"] for r in st.session_state.history])), reverse=True)
@@ -242,7 +242,7 @@ def trigger_new_data(vpd_min, vpd_max, token, chat_id):
         history_of_latest_day = [r for r in st.session_state.history if r["Ngày"] == latest_day_in_db]
         trend, _ = predict_vpd_trend_v3(history_of_latest_day, current_sim_datetime.hour)
         
-        # Tạo tin nhắn đồng bộ chuẩn cấu trúc 3 dòng gọn gàng về điện thoại
+        # Tin nhắn cấu trúc 3 dòng gọn gàng đổ thẳng về điện thoại
         telegram_msg = (
             f"🌿 *HỆ THỐNG VPD ĐÀ LẠT REALTIME*\n"
             f"⏰ Thời gian: {current_date_str} - {current_sim_datetime.strftime('%H:%M')}\n"
@@ -271,7 +271,7 @@ with st.container(border=True):
                 setup_next_day()
             st.session_state.is_running = True
             if st.session_state.stt_counter == 0: 
-                trigger_new_data(vpd_min, vpd_max, tele_token, tele_chat_id)
+                trigger_new_data(vpd_min, vpd_max, TELE_TOKEN, TELE_CHAT_ID)
             st.rerun()
     with col_btn2:
         if st.button("""⏸️ Tạm dừng hệ thống""", type="secondary", use_container_width=True, disabled=not st.session_state.is_running):
@@ -285,7 +285,7 @@ def vpd_controlled_monitor():
     if st.session_state.is_running:
         st.session_state.countdown -= 1
         if st.session_state.countdown < 0: 
-            trigger_new_data(vpd_min, vpd_max, tele_token, tele_chat_id)
+            trigger_new_data(vpd_min, vpd_max, TELE_TOKEN, TELE_CHAT_ID)
             st.rerun()
             
     if st.session_state.is_running:
@@ -337,8 +337,7 @@ def vpd_controlled_monitor():
             st.markdown(f"**2️⃣ Hướng giải pháp đề xuất:** *{sol_text}*")
             st.markdown(f"**3️⃣ Xu hướng vận hành tiếp theo:** {trend_msg}")
             
-            if tele_token and tele_chat_id:
-                st.markdown("<p style='color: #0088cc; font-size: 12px; font-style: italic; margin-top: 5px;'>🚀 Đã kích hoạt Telegram: Hệ thống sẽ tự gửi tin nhắn đồng bộ cấu trúc 3 dòng này về điện thoại của bạn!</p>", unsafe_allow_html=True)
+            st.markdown("<p style='color: #0088cc; font-size: 12px; font-style: italic; margin-top: 5px;'>🚀 Tin nhắn bảo mật 3 dòng đang được gửi tự động và đồng bộ ngầm về Telegram của bạn!</p>", unsafe_allow_html=True)
 
     # --- BỘ LỌC LƯU TRỮ TRUNG TÂM ---
     if len(st.session_state.history) > 0:
@@ -383,19 +382,16 @@ def vpd_controlled_monitor():
                 
             with tab_vpd:
                 st.caption(f"ℹ️ Vùng màu an toàn theo [{plant_option}]: 🟦 Quá ẩm (< {vpd_min} kPa) | 🟥 Quá khô (> {vpd_max} kPa)")
-                
                 bg_data = pd.DataFrame([{'start_blue': 0.0, 'end_blue': vpd_min, 'start_red': vpd_max, 'end_red': 3.0}])
                 
                 rect_blue = alt.Chart(bg_data).mark_rect(color='#0068C9', opacity=0.12).encode(
                     y=alt.Y('start_blue:Q', scale=alt.Scale(domain=[0, 3.0])), 
                     y2=alt.Y2('end_blue:Q')
                 )
-                
                 rect_red = alt.Chart(bg_data).mark_rect(color='#FF4B4B', opacity=0.12).encode(
                     y=alt.Y('start_red:Q', scale=alt.Scale(domain=[0, 3.0])), 
                     y2=alt.Y2('end_red:Q')
                 )
-                
                 line_vpd = alt.Chart(df_filtered).mark_line(color="#2E7D32", point=True).encode(
                     x=alt.X('Hiển thị Giờ:O', axis=alt.Axis(title="Mốc thời gian", labelAngle=0)),
                     y=alt.Y('VPD (kPa):Q', scale=alt.Scale(domain=[0, 3.0]), axis=alt.Axis(title="Chỉ số VPD (kPa)", grid=True)),
@@ -407,28 +403,22 @@ def vpd_controlled_monitor():
 
             with tab_combined:
                 st.caption("🔴 Đường Đỏ: Nhiệt độ (°C) | 🔵 Đường Xanh dương: Độ ẩm (%) [Trục Trái] --- 🟢 Đường Xanh lá: VPD (kPa) [Trục Phải]")
-                
                 base = alt.Chart(df_filtered).encode(
                     x=alt.X('Hiển thị Giờ:O', axis=alt.Axis(title="Mốc thời gian", labelAngle=0))
                 )
-                
                 line_t = base.mark_line(color='#FF4B4B', strokeDash=[3,3], point=alt.OverlayMarkDef(color='#FF4B4B')).encode(
                     y=alt.Y('Nhiệt độ (°C):Q', axis=alt.Axis(title="Nhiệt độ (°C) / Độ ẩm (%)", titleColor='#0068C9')),
                     tooltip=['Hiển thị Giờ', 'Nhiệt độ (°C)']
                 )
-                
                 line_r = base.mark_line(color='#0068C9', point=alt.OverlayMarkDef(color='#0068C9')).encode(
                     y=alt.Y('Độ ẩm (%):Q'),
                     tooltip=['Hiển thị Giờ', 'Độ ẩm (%)']
                 )
-                
                 weather_layer = alt.layer(line_t, line_r)
-                
                 line_v = base.mark_line(color='#2E7D32', size=3, point=alt.OverlayMarkDef(color='#2E7D32')).encode(
                     y=alt.Y('VPD (kPa):Q', axis=alt.Axis(title="Áp suất VPD (kPa)", titleColor='#2E7D32'), scale=alt.Scale(domain=[0, 3.0])),
                     tooltip=['Hiển thị Giờ', 'VPD (kPa)', 'Trạng thái']
                 )
-                
                 combined_chart = alt.layer(weather_layer, line_v).properties(height=260).resolve_scale(
                     y='independent'
                 ).interactive()
