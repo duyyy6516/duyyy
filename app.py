@@ -118,33 +118,20 @@ def analyze_day_by_blocks_rt(history_list, vpd_min, vpd_max, target_date_str):
             })
     return pd.DataFrame(summary)
 
-# --- HÀM DỰ BÁO XU HƯỚNG ---
-def predict_vpd_trend_v3(filtered_history, vpd_min, vpd_max):
-    if len(filtered_history) < 4:
-        return "Hệ thống đang tích lũy thêm số liệu để tính toán...", "info"
-    v0 = filtered_history[0]["VPD (kPa)"]
-    v1 = filtered_history[1]["VPD (kPa)"]
-    v2 = filtered_history[2]["VPD (kPa)"]
-    v3 = filtered_history[3]["VPD (kPa)"]
-    ma_hien_tai = (v0 + v1) / 2
-    ma_truoc_do = (v2 + v3) / 2
-    is_trending_up = ma_hien_tai > ma_truoc_do
-    is_trending_down = ma_hien_tai < ma_truoc_do
-    buffer = 0.15
-    
-    if vpd_min <= v0 <= vpd_max:
-        if (v0 - vpd_min <= buffer) and is_trending_down:
-            return "Chỉ số đang giảm nhanh tiến sát biên dưới. Môi trường SẮP BỊ QUÁ ẨM!", "warning"
-        elif (vpd_max - v0 <= buffer) and is_trending_up:
-            return "Chỉ số đang tăng nhanh tiến sát biên trên. Môi trường SẮP BỊ QUÁ KHÔ!", "error"
-        else:
-            hướng = "tăng ổn định" if is_trending_up else "giảm an toàn"
-            return f"Chỉ số đi theo xu hướng {hướng} và nằm trong vùng an toàn.", "success"
+# --- HÀM DỰ BÁO XU HƯỚNG CHU KỲ THỜI TIẾT TỰ NHIÊN ---
+def predict_vpd_trend_v3(filtered_history, current_hour):
+    if len(filtered_history) < 2:
+        return "🔄 Hệ thống đang tích lũy số liệu mốc giờ để tính toán...", "info"
+        
+    # Dự báo dựa trên quy luật bức xạ mặt trời tại Đà Lạt
+    if 7 <= current_hour < 11:
+        return "Nắng đang lên nhanh, bức xạ mặt trời tăng mạnh. Dự báo nhiệt độ tiếp tục tăng và độ ẩm sẽ giảm sâu trong các mốc giờ tới.", "warning"
+    elif 11 <= current_hour < 14:
+        return "Đang ở đỉnh điểm bức xạ trong ngày. Dự báo môi trường sẽ duy trì trạng thái khô nóng cực hạn trước khi dịu dần sau 14h30.", "error"
+    elif 14 <= current_hour < 18:
+        return "Nắng đang tắt dần, bức xạ nhiệt suy giảm. Dự báo nhiệt độ nhà kính sẽ hạ nhanh và ẩm độ bắt đầu đảo chiều tăng mạnh.", "success"
     else:
-        if v0 < vpd_min:
-            return "VPD đang nằm sâu trong vùng quá ẩm, xu hướng cần tăng thông thoáng để thoát ẩm.", "warning"
-        else:
-            return "VPD đang nằm ở mức quá khô, xu hướng cần bổ sung phun sương để kéo hạ nhiệt.", "error"
+        return "Giai đoạn đêm và rạng sáng. Không có bức xạ mặt trời, nhiệt độ tiếp tục hạ thấp và độ ẩm sẽ bão hòa tiến sát mốc 95%.", "info"
 
 # --- KHỞI TẠO BIẾN TRONG SESSION STATE ---
 if 'temp' not in st.session_state: st.session_state.temp = 0.0
@@ -277,7 +264,7 @@ def vpd_controlled_monitor():
         if st.session_state.stt_counter == 0:
             st.info("📊 Đang chờ hệ thống bắt đầu kích hoạt phát số...")
         else:
-            # Phân loại màu sắc
+            # Phân loại màu sắc trạng thái
             if vpd_result < vpd_min:
                 status_lbl = "🟦 QUÁ ẨM"
                 text_color = "#0068C9"
@@ -288,17 +275,15 @@ def vpd_controlled_monitor():
                 status_lbl = "🟥 QUÁ KHÔ"
                 text_color = "#FF4B4B"
                 
-            # Lấy thông tin ngày hiện tại để làm cơ sở tính xu hướng
             unique_days = sorted(list(set([r["Ngày"] for r in st.session_state.history])), reverse=True)
             latest_day_in_db = unique_days[0] if unique_days else current_date_display
             history_of_latest_day = [r for r in st.session_state.history if r["Ngày"] == latest_day_in_db]
             
-            # Tra cứu giải pháp xử lý kỹ thuật tương ứng với mốc giờ hiện tại
+            # Khởi tạo nội dung xử lý
             sol_text = get_quick_solution(vpd_result, vpd_min, vpd_max, current_sim_dt.hour)
-            # Tra cứu xu hướng phát triển
-            trend_msg, msg_type = predict_vpd_trend_v3(history_of_latest_day, vpd_min, vpd_max)
+            trend_msg, msg_type = predict_vpd_trend_v3(history_of_latest_day, current_sim_dt.hour)
             
-            # HIỂN THỊ ĐÚNG 3 DÒNG THEO THỨ TỰ ƯU TIÊN
+            # HIỂN THỊ CHUẨN XÁC 3 DÒNG KHÔNG TRÙNG LẶP NỘI DUNG
             st.markdown(f"**1️⃣ Trạng thái hệ thống:** Chỉ số hiện tại đạt <span style='font-size: 16px; color: {text_color}; font-weight: bold;'>{vpd_result:.2f} kPa</span> —— Phân loại: **{status_lbl}**", unsafe_allow_html=True)
             st.markdown(f"**2️⃣ Hướng giải pháp đề xuất:** *{sol_text}*")
             st.markdown(f"**3️⃣ Xu hướng vận hành tiếp theo:** {trend_msg}")
@@ -312,7 +297,7 @@ def vpd_controlled_monitor():
             selected_view_day = st.selectbox("Chọn ngày lịch sử cần kiểm tra (Biểu đồ và Bảng số liệu sẽ đồng bộ theo ngày này):", unique_days)
             
             df_all_records = pd.DataFrame(st.session_state.history)
-            df_filtered = df_all_records[df_all_records["Ngày"] == selected_view_day].iloc[::-1].copy()
+            df_filtered = df_all_records[df_all_records["Nancy"] == selected_view_day].iloc[::-1].copy() if "Nancy" in df_all_records.columns else df_all_records[df_all_records["Ngày"] == selected_view_day].iloc[::-1].copy()
 
         # --- CONTAINER 5: BÁO CÁO PHÂN TÍCH THEO BUỔI CỦA NGÀY ĐƯỢC CHỌN ---
         st.write("")
