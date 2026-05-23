@@ -156,7 +156,7 @@ def predict_vpd_trend_v3(filtered_history, current_hour):
     else:
         return "Giai đoạn đêm và rạng sáng. Không có bức xạ mặt trời, nhiệt độ tiếp tục hạ thấp và độ ẩm sẽ bão hòa tiến sát mốc 95%.", "info"
 
-# --- KHỔI TẠO BIẾN TRONG SESSION STATE ---
+# --- KHỞI TẠO BIẾN TRONG SESSION STATE ---
 if 'temp' not in st.session_state: st.session_state.temp = 0.0
 if 'rh' not in st.session_state: st.session_state.rh = 0.0
 if 'countdown' not in st.session_state: st.session_state.countdown = 15 
@@ -266,7 +266,7 @@ def trigger_new_data(vpd_min, vpd_max, token, chat_id):
 with st.container(border=True):
     col_btn1, col_btn2 = st.columns(2)
     with col_btn1:
-        if st.button("""▶️ Bắt đầu chạy tự động""", type="primary", use_container_width=True, disabled=st.session_state.is_running):
+        if st.button("▶️ Bắt đầu chạy tự động", type="primary", use_container_width=True, disabled=st.session_state.is_running):
             if st.session_state.is_completed:
                 setup_next_day()
             st.session_state.is_running = True
@@ -274,7 +274,7 @@ with st.container(border=True):
                 trigger_new_data(vpd_min, vpd_max, TELE_TOKEN, TELE_CHAT_ID)
             st.rerun()
     with col_btn2:
-        if st.button("""⏸️ Tạm dừng hệ thống""", type="secondary", use_container_width=True, disabled=not st.session_state.is_running):
+        if st.button("⏸️ Tạm dừng hệ thống", type="secondary", use_container_width=True, disabled=not st.session_state.is_running):
             st.session_state.is_running = False
             st.rerun()
 
@@ -367,16 +367,16 @@ def vpd_controlled_monitor():
             with tab_temp:
                 chart_temp = alt.Chart(df_filtered).mark_line(color="#FF4B4B", point=True).encode(
                     x=alt.X('Hiển thị Giờ:O', axis=alt.Axis(title="Mốc thời gian", labelAngle=0)), 
-                    y=alt.Y('Nhiệt độ (°C):Q', scale=alt.Scale(zero=False), axis=alt.Axis(title="Nhiệt độ (°C)")),
-                    tooltip=['Ngày', 'Hiển thị Giờ', 'Nhiệt độ (°C)']
+                    y=alt.Y("Nhiệt độ (°C):Q", scale=alt.Scale(zero=False), axis=alt.Axis(title="Nhiệt độ (°C)")),
+                    tooltip=['Ngày', 'Hiển thị Giờ', "Nhiệt độ (°C)"]
                 ).properties(height=260).interactive()
                 st.altair_chart(chart_temp, use_container_width=True)
                 
             with tab_rh:
                 chart_rh = alt.Chart(df_filtered).mark_line(color="#0068C9", point=True).encode(
                     x=alt.X('Hiển thị Giờ:O', axis=alt.Axis(title="Mốc thời gian", labelAngle=0)),
-                    y=alt.Y('Độ ẩm (%):Q', scale=alt.Scale(zero=False), axis=alt.Axis(title="Độ ẩm (%)")),
-                    tooltip=['Ngày', 'Hiển thị Giờ', 'Độ ẩm (%)']
+                    y=alt.Y("Độ ẩm (%):Q", scale=alt.Scale(zero=False), axis=alt.Axis(title="Độ ẩm (%)")),
+                    tooltip=['Ngày', 'Hiển thị Giờ', "Độ ẩm (%)"]
                 ).properties(height=260).interactive()
                 st.altair_chart(chart_rh, use_container_width=True)
                 
@@ -407,4 +407,42 @@ def vpd_controlled_monitor():
                     x=alt.X('Hiển thị Giờ:O', axis=alt.Axis(title="Mốc thời gian", labelAngle=0))
                 )
                 line_t = base.mark_line(color='#FF4B4B', strokeDash=[3,3], point=alt.OverlayMarkDef(color='#FF4B4B')).encode(
-                    y=alt.Y('Nhiệt
+                    y=alt.Y("Nhiệt độ (°C):Q", axis=alt.Axis(title="Nhiệt độ (°C) / Độ ẩm (%)", titleColor='#0068C9')),
+                    tooltip=['Hiển thị Giờ', "Nhiệt độ (°C)"]
+                )
+                line_r = base.mark_line(color='#0068C9', point=alt.OverlayMarkDef(color='#0068C9')).encode(
+                    y=alt.Y("Độ ẩm (%):Q"),
+                    tooltip=['Hiển thị Giờ', "Độ ẩm (%)"]
+                )
+                weather_layer = alt.layer(line_t, line_r)
+                line_v = base.mark_line(color="#2E7D32", size=3, point=alt.OverlayMarkDef(color='#2E7D32')).encode(
+                    y=alt.Y('VPD (kPa):Q', axis=alt.Axis(title="Áp suất VPD (kPa)", titleColor='#2E7D32'), scale=alt.Scale(domain=[0, 3.0])),
+                    tooltip=['Hiển thị Giờ', 'VPD (kPa)', 'Trạng thái']
+                )
+                combined_chart = alt.layer(weather_layer, line_v).properties(height=260).resolve_scale(
+                    y='independent'
+                ).interactive()
+                st.altair_chart(combined_chart, use_container_width=True)
+
+        # --- CONTAINER 7: LỊCH SỬ BẢNG ĐÃ ĐƯỢC LỌC ---
+        st.write("")
+        with st.container(border=True):
+            st.markdown(f"<p style='color: gray; font-size: 14px; margin-bottom: 10px;'>📋 BẢNG LỊCH SỬ GHI NHẬN - LỌC: {selected_view_day}</p>", unsafe_allow_html=True)
+            df_display = df_filtered.iloc[::-1].copy() 
+            df_display["Thời gian mô phỏng"] = df_display["Hiển thị Giờ"]
+            df_display = df_display.drop(columns=["Hiển thị Giờ"])
+            st.dataframe(df_display, use_container_width=True, hide_index=True)
+
+        # NÚT XÓA SẠCH DATABASE HỆ THỐNG
+        if st.button("🗑️ Khởi động lại hệ thống (Xóa toàn bộ dữ liệu lịch sử)", type="secondary"):
+            st.session_state.stt_counter = 0
+            st.session_state.temp = 0.0
+            st.session_state.rh = 0.0
+            st.session_state.history = []
+            st.session_state.simulated_time = "2026-05-24 07:00:00"
+            st.session_state.is_completed = False
+            st.session_state.is_running = False
+            st.rerun()
+
+# Khởi chạy Dashboard
+vpd_controlled_monitor()
