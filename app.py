@@ -125,7 +125,7 @@ def predict_vpd_trend_v2(history, vpd_min, vpd_max):
             return f"🔮 DỰ BÁO SỚM: Chỉ số VPD ({v0:.2f} kPa) đang tiến sát biên trên. Môi trường SẮP QUÁ KHÔ!", "error"
         else:
             hướng = "📈 xu hướng tăng" if is_trending_up else "📉 xu hướng giảm"
-            return f"🟢 Ổn định: Chỉ số đi theo {hướng} nhưng vẫn nằm an toàn.", "success"
+            return f"🟢 Ổn định: Chỉ số đi theo {hướng} but vẫn nằm an toàn.", "success"
     else:
         if v0 < vpd_min:
             return f"🚨 BÁO ĐỘNG: Nhà kính đang bị QUÁ ẨM ({v0:.2f} < {vpd_min} kPa)!", "warning"
@@ -260,7 +260,8 @@ def vpd_controlled_monitor():
     if len(st.session_state.history) > 0:
         st.write("")
         with st.container(border=True):
-            st.markdown("<p style='color: gray; font-size: 14px; margin-bottom: 2px;'>📈 BIỂU ĐỒ XU HƯỚNG ĐỒNG BỘ CHU KỲ TRONG NGÀY</p>", unsafe_allow_html=True)
+            st.markdown("<p style='color: gray; font-size: 14px; margin-bottom: 2px;'>📈 BIỂU ĐỒ XU HƯỚNG ĐỒNG BỘ CHU KỲ (Xoay chuột để Zoom | Giữ chuột kéo để Di chuyển)</p>", unsafe_allow_html=True)
+            st.caption("💡 *Mẹo:* Bạn có thể dùng cuộn chuột để phóng to/thu nhỏ dải giờ cao điểm cần xem kỹ.")
             
             df_chart = pd.DataFrame(st.session_state.history).iloc[::-1].copy()
             
@@ -271,7 +272,7 @@ def vpd_controlled_monitor():
                     x=alt.X('Hiển thị Giờ:O', axis=alt.Axis(title="Mốc thời gian", labelAngle=0)), 
                     y=alt.Y('Nhiệt độ (°C):Q', scale=alt.Scale(zero=False), axis=alt.Axis(title="Nhiệt độ (°C)")),
                     tooltip=['Ngày', 'Hiển thị Giờ', 'Nhiệt độ (°C)']
-                ).properties(height=260)
+                ).properties(height=260).interactive() # Thêm tính năng Zoom/Pan
                 st.altair_chart(chart_temp, use_container_width=True)
                 
             with tab_rh:
@@ -279,13 +280,12 @@ def vpd_controlled_monitor():
                     x=alt.X('Hiển thị Giờ:O', axis=alt.Axis(title="Mốc thời gian", labelAngle=0)),
                     y=alt.Y('Độ ẩm (%):Q', scale=alt.Scale(zero=False), axis=alt.Axis(title="Độ ẩm (%)")),
                     tooltip=['Ngày', 'Hiển thị Giờ', 'Độ ẩm (%)']
-                ).properties(height=260)
+                ).properties(height=260).interactive() # Thêm tính năng Zoom/Pan
                 st.altair_chart(chart_rh, use_container_width=True)
                 
             with tab_vpd:
                 st.caption(f"ℹ️ Vùng màu an toàn theo [{plant_option}]: 🟦 Quá ẩm (< {vpd_min} kPa) | 🟥 Quá khô (> {vpd_max} kPa)")
                 
-                # SỬA LỖI 1: Tách trục vùng nền bằng cách gán ranh giới rõ ràng độc lập, tiêu đề sạch sẽ
                 bg_data = pd.DataFrame([{'start_blue': 0.0, 'end_blue': vpd_min, 'start_red': vpd_max, 'end_red': 3.0}])
                 
                 rect_blue = alt.Chart(bg_data).mark_rect(color='#0068C9', opacity=0.12).encode(
@@ -304,8 +304,10 @@ def vpd_controlled_monitor():
                     tooltip=['Ngày', 'Hiển thị Giờ', 'VPD (kPa)', 'Trạng thái']
                 )
                 
-                # .resolve_scale(y='independent') giúp lọc sạch chuỗi chữ rác ở trục Y
-                chart_vpd = (rect_blue + rect_red + line_vpd).properties(height=260).resolve_scale(y='independent')
+                # Thêm .interactive() để cho phép phóng to thu nhỏ tab VPD
+                chart_vpd = (rect_blue + rect_red + line_vpd).properties(height=260).resolve_scale(
+                    y='independent'
+                ).interactive()
                 st.altair_chart(chart_vpd, use_container_width=True)
 
             with tab_combined:
@@ -315,7 +317,6 @@ def vpd_controlled_monitor():
                     x=alt.X('Hiển thị Giờ:O', axis=alt.Axis(title="Mốc thời gian", labelAngle=0))
                 )
                 
-                # SỬA LỖI 2: Đưa Nhiệt độ và Độ ẩm vào chung 1 lớp ghép đôi (layer) trước khi kéo trục VPD
                 line_t = base.mark_line(color='#FF4B4B', strokeDash=[3,3], point=alt.OverlayMarkDef(color='#FF4B4B')).encode(
                     y=alt.Y('Nhiệt độ (°C):Q', axis=alt.Axis(title="Nhiệt độ (°C) / Độ ẩm (%)", titleColor='#0068C9')),
                     tooltip=['Hiển thị Giờ', 'Nhiệt độ (°C)']
@@ -326,19 +327,17 @@ def vpd_controlled_monitor():
                     tooltip=['Hiển thị Giờ', 'Độ ẩm (%)']
                 )
                 
-                # Gộp nhóm thời tiết (Trái)
                 weather_layer = alt.layer(line_t, line_r)
                 
-                # Thiết kế đường vẽ VPD (Phải)
                 line_v = base.mark_line(color='#2E7D32', size=3, point=alt.OverlayMarkDef(color='#2E7D32')).encode(
                     y=alt.Y('VPD (kPa):Q', axis=alt.Axis(title="Áp suất VPD (kPa)", titleColor='#2E7D32'), scale=alt.Scale(domain=[0, 3.0])),
                     tooltip=['Hiển thị Giờ', 'VPD (kPa)', 'Trạng thái']
                 )
                 
-                # Ép phân tách 2 cụm độc lập: Cụm thời tiết (Trái) và Cụm VPD (Phải) để chống chồng chữ
+                # Thêm .interactive() giúp phóng to thu nhỏ tab Tổ hợp 3 chỉ số cực mượt
                 combined_chart = alt.layer(weather_layer, line_v).properties(height=260).resolve_scale(
                     y='independent'
-                )
+                ).interactive()
                 st.altair_chart(combined_chart, use_container_width=True)
 
     # --- CONTAINER 7: LỊCH SỬ DỮ LIỆU BẢNG ---
