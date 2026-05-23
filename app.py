@@ -366,7 +366,7 @@ def vpd_controlled_monitor():
             rt_report_df = analyze_day_by_blocks_rt(st.session_state.history, vpd_min, vpd_max, selected_view_day)
             st.dataframe(rt_report_df, use_container_width=True, hide_index=True)
 
-        # --- BIỂU ĐỒ XU HƯỚNG CHU KỲ (ĐÃ LÀM MỜ VÙNG MÀU NỀN CHO ĐẸP VÀ CHUẨN) ---
+        # --- BIỂU ĐỒ XU HƯỚNG CHU KỲ ---
         st.write("")
         with st.container(border=True):
             st.markdown(f"<p style='color: gray; font-size: 14px; margin-bottom: 2px;'>📈 BIỂU ĐỒ XU HƯỚNG THEO CHU KỲ - LỌC: {selected_view_day}</p>", unsafe_allow_html=True)
@@ -392,14 +392,14 @@ def vpd_controlled_monitor():
             with tab_vpd:
                 st.caption(f"ℹ️ Vùng màu an toàn theo [{plant_option}]: 🟦 Quá ẩm (< {vpd_min} kPa) | 🟥 Quá khô (> {vpd_max} kPa)")
                 
-                # GIỮ NGUYÊN PHỦ KÍN BIÊN, NHƯNG ĐÃ HẠ THẤP OPACITY (0.12) ĐỂ LÀM TRONG SUỐT VÀ MỊN MẮT
+                # CẬP NHẬT: Mở rộng dải biên âm xuống hẳn -5.0 và dải biên dương lên hẳn 10.0 để đổ tràn viền 100%
                 rect_blue = alt.Chart(df_filtered).mark_rect(color='#0068C9', opacity=0.12).encode(
-                    y=alt.Y(datum=0.0),
+                    y=alt.Y(datum=-5.0),
                     y2=alt.Y2(datum=vpd_min)
                 )
                 rect_red = alt.Chart(df_filtered).mark_rect(color='#FF4B4B', opacity=0.12).encode(
                     y=alt.Y(datum=vpd_max),
-                    y2=alt.Y2(datum=2.0)
+                    y2=alt.Y2(datum=10.0)
                 )
                 line_vpd = alt.Chart(df_filtered).mark_line(color="#2E7D32", point=True).encode(
                     x=alt.X('Hiển thị Giờ:O', axis=alt.Axis(title="Mốc thời gian", labelAngle=-45)),
