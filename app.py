@@ -1,4 +1,4 @@
-import streamlit as pd
+import streamlit as st  # Sửa 'as pd' thành 'as st' ở đây
 import pandas as pd
 import random
 from datetime import datetime
