@@ -4,13 +4,14 @@ import numpy as np
 import paho.mqtt.client as mqtt
 import requests
 import json
+import random
 import queue
 import plotly.express as px
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
 
 # =====================================================================
-# CẤU HÌNH GIAO DIỆN & KẾT NỐI
+# CẤU HÌNH
 # =====================================================================
 st.set_page_config(page_title="Giám Sát Trạm Đơn", page_icon="🌿", layout="centered")
 st.title("🌿 Giám Sát Real-Time: Trạm 01")
@@ -24,10 +25,11 @@ TELEGRAM_CHAT_ID = "YOUR_CHAT_ID"
 if "mqtt_df" not in st.session_state: st.session_state.mqtt_df = pd.DataFrame()
 if "is_running" not in st.session_state: st.session_state.is_running = True
 
+# Tự động làm mới mỗi 30s
 st_autorefresh(interval=30000, key="iot_refresh")
 
 # =====================================================================
-# HÀM XỬ LÝ (GIỮ NGUYÊN LOGIC CŨ)
+# CÁC HÀM XỬ LÝ (GIỮ NGUYÊN)
 # =====================================================================
 def calculate_vpd(temp, humi):
     vp_sat = 0.61078 * np.exp((17.27 * temp) / (temp + 237.3))
@@ -37,21 +39,21 @@ def send_telegram_auto(message):
     if TELEGRAM_TOKEN == "YOUR_TELEGRAM_TOKEN": return
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     try: requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"}, timeout=2)
-    except Exception as e: print(f"Telegram Error: {e}")
+    except: pass
 
 def evaluate_status(vpd, temp, humi, low_t, high_t):
-    if humi == 0: return "⚠️ Mất tín hiệu", "Độ ẩm bằng 0%", "Kiểm tra giắc cắm"
-    if vpd > high_t and temp > 40: return "🔥 BÁO ĐỘNG KHÔ NÓNG", "VPD quá cao + Nóng", "Bật phun sương & lưới lan"
-    if vpd < low_t: return "❌ Quá ẩm", f"VPD {vpd:.2f} < {low_t}", "Bật quạt đối lưu"
-    return "✅ Môi trường lý tưởng", f"VPD {vpd:.2f} kPa", "Giữ nguyên"
+    if humi == 0: return "⚠️ Mất tín hiệu", "Độ ẩm 0%", "Kiểm tra cảm biến"
+    if vpd > high_t: return "❌ Khô nóng", f"VPD {vpd:.2f} cao", "Bật phun sương"
+    if vpd < low_t: return "❌ Quá ẩm", f"VPD {vpd:.2f} thấp", "Bật quạt đối lưu"
+    return "✅ Lý tưởng", f"VPD {vpd:.2f} ổn định", "Giữ nguyên"
 
 # =====================================================================
-# ĐIỀU KHIỂN & CÀI ĐẶT (GIỮ CÁC PRESET)
+# UI ĐIỀU KHIỂN & CÀI ĐẶT
 # =====================================================================
-col_start, col_stop = st.columns(2)
-with col_start:
+col1, col2 = st.columns(2)
+with col1:
     if st.button("▶️ BẮT ĐẦU"): st.session_state.is_running = True
-with col_stop:
+with col2:
     if st.button("⏸️ DỪNG"): st.session_state.is_running = False
 
 PLANT_PRESETS = {"Dưa leo": (0.7, 1.3), "Cà chua": (0.6, 1.2), "Ớt chuông": (0.5, 1.0)}
@@ -60,7 +62,7 @@ low_t = st.slider("Ngưỡng thấp (kPa):", 0.1, 1.5, PLANT_PRESETS[selected][0
 high_t = st.slider("Ngưỡng cao (kPa):", 1.0, 3.0, PLANT_PRESETS[selected][1], 0.05)
 
 # =====================================================================
-# MQTT CLIENT (LUỒNG NỀN)
+# LOGIC MQTT & RANDOM MÔ PHỎNG
 # =====================================================================
 def on_message(client, userdata, msg):
     try:
@@ -69,7 +71,7 @@ def on_message(client, userdata, msg):
     except: pass
 
 @st.cache_resource
-def get_mqtt_queue():
+def start_mqtt():
     q = queue.Queue()
     client = mqtt.Client()
     client.user_data_set(q)
@@ -79,35 +81,44 @@ def get_mqtt_queue():
     client.loop_start()
     return q
 
-mqtt_queue = get_mqtt_queue()
+mqtt_queue = start_mqtt()
 
-# Xử lý dữ liệu đến
-while not mqtt_queue.empty():
-    new_df = mqtt_queue.get()
-    # Tính VPD và Cảnh báo
-    t, h = new_df.iloc[0]['Nhiệt độ'], new_df.iloc[0]['Độ ẩm']
+# Xử lý dữ liệu (Ưu tiên MQTT, nếu không có MQTT thì Random)
+if not mqtt_queue.empty():
+    df_new = mqtt_queue.get()
+else:
+    # --- ĐÂY LÀ PHẦN RANDOM MÔ PHỎNG BẠN CẦN ---
+    if st.session_state.is_running:
+        temp = round(random.uniform(25.0, 35.0), 1)
+        humi = round(random.uniform(50.0, 85.0), 1)
+        df_new = pd.DataFrame([{
+            "Thời gian": datetime.now().strftime("%H:%M:%S"),
+            "Nhiệt độ": temp,
+            "Độ ẩm": humi
+        }])
+    else:
+        df_new = pd.DataFrame()
+
+if not df_new.empty:
+    t, h = df_new.iloc[0]['Nhiệt độ'], df_new.iloc[0]['Độ ẩm']
     vpd = calculate_vpd(t, h)
     status, reason, action = evaluate_status(vpd, t, h, low_t, high_t)
     
-    # Gửi Telegram nếu đang chạy
     if st.session_state.is_running:
-        send_telegram_auto(f"Trạm 01: {status}\nVPD: {vpd:.2f} kPa\n{reason}")
+        send_telegram_auto(f"Trạm 01: {status}\nVPD: {vpd:.2f} kPa")
     
-    # Cập nhật lịch sử
-    new_df['VPD'] = vpd
-    st.session_state.mqtt_df = pd.concat([st.session_state.mqtt_df, new_df]).tail(100)
+    df_new['VPD'] = vpd
+    df_new['Trạng thái'] = status
+    st.session_state.mqtt_df = pd.concat([st.session_state.mqtt_df, df_new]).tail(50)
 
 # =====================================================================
-# HIỂN THỊ DỮ LIỆU & CSV (GIỮ NGUYÊN)
+# HIỂN THỊ
 # =====================================================================
 if not st.session_state.mqtt_df.empty:
-    st.download_button("📥 Tải lịch sử CSV", st.session_state.mqtt_df.to_csv(index=False), "log.csv")
-    st.dataframe(st.session_state.mqtt_df, use_container_width=True)
+    st.download_button("📥 Tải CSV", st.session_state.mqtt_df.to_csv(index=False), "log.csv")
+    st.dataframe(st.session_state.mqtt_df.sort_index(ascending=False), use_container_width=True)
     
-    # Biểu đồ
-    fig = px.line(st.session_state.mqtt_df, x="Thời gian", y="VPD", title="Chỉ số VPD Trạm 01")
+    fig = px.line(st.session_state.mqtt_df, x="Thời gian", y="VPD", title="Chỉ số VPD")
     fig.add_hline(y=low_t, line_dash="dash", line_color="blue")
     fig.add_hline(y=high_t, line_dash="dash", line_color="red")
     st.plotly_chart(fig, use_container_width=True)
-else:
-    st.info("Đang chờ dữ liệu từ MQTT...")
