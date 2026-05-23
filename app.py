@@ -1,104 +1,67 @@
 import streamlit as st
-import pandas as pd
-import numpy as np
-import paho.mqtt.client as mqtt
-import requests
-import json
 import random
-import queue
-import streamlit.components.v1 as components
-import plotly.express as px
-from datetime import datetime
-from streamlit_autorefresh import st_autorefresh
+import math
 
-# =====================================================================
-# CẤU HÌNH GIAO DIỆN
-# =====================================================================
-st.set_page_config(page_title="Hệ Thống Quét Điều Khiển", page_icon="🌿", layout="centered")
+# Cấu hình trang web Streamlit
+st.set_page_config(page_title="Tính toán VPD", page_icon="🌿", layout="centered")
 
-st.title("🌿 Giám Sát Real-Time: Trạm 01")
-st.markdown("Mô phỏng: **Dữ liệu cập nhật mỗi 30s**.")
+st.title("Hệ Thống Giám Sát & Tính Toán VPD 🌿")
+st.write("Nhấn nút bên dưới để lấy ngẫu nhiên thông số nhiệt độ, độ ẩm và tính toán chỉ số VPD tự động.")
 
-MQTT_BROKER = "broker.hivemq.com"
-MQTT_PORT = 1883
-MQTT_TOPIC = "vuon_thong_minh/duy_tran/sensors"
-TELEGRAM_TOKEN = "YOUR_TELEGRAM_TOKEN" 
-TELEGRAM_CHAT_ID = "YOUR_CHAT_ID"
-
-if "mqtt_df" not in st.session_state: st.session_state.mqtt_df = pd.DataFrame()
-if "is_running" not in st.session_state: st.session_state.is_running = False
-
-# =====================================================================
-# CÁC HÀM XỬ LÝ (GIỮ NGUYÊN)
-# =====================================================================
-def calculate_vpd(temp, humi):
-    vp_sat = 0.61078 * np.exp((17.27 * temp) / (temp + 237.3))
-    return float(np.clip(vp_sat * (1 - (humi / 100)), 0, None))
-
-def send_telegram_auto(message):
-    if TELEGRAM_TOKEN == "YOUR_TELEGRAM_TOKEN": return
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    try: requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"}, timeout=2)
-    except: pass
-
-def evaluate_status(vpd, temp, humi, low_t, high_t):
-    if humi == 0: return "⚠️ Mất tín hiệu", "Độ ẩm 0%", "Kiểm tra cảm biến"
-    if vpd < low_t: return "❌ Quá ẩm", f"VPD {vpd:.2f} < {low_t}", "Bật quạt đối lưu"
-    if vpd > high_t: return "❌ Khô hanh", f"VPD {vpd:.2f} > {high_t}", "Bật phun sương"
-    return "✅ Môi trường lý tưởng", f"VPD {vpd:.2f} ổn định", "Giữ nguyên"
-
-# =====================================================================
-# ĐIỀU KHIỂN & CÀI ĐẶT
-# =====================================================================
-st.subheader("⚙️ Bộ Điều Khiển Hệ Thống")
-col_start, col_stop = st.columns(2)
-if col_start.button("▶️ BẮT ĐẦU", use_container_width=True, type="primary"):
-    st.session_state.is_running = True
-    st.rerun()
-if col_stop.button("⏸️ DỪNG LẠI", use_container_width=True):
-    st.session_state.is_running = False
-    st.rerun()
-
-# Cài đặt ngưỡng
-PLANT_PRESETS = {"Tự tùy chỉnh": None, "🥒 Dưa leo": (0.7, 1.3), "🍅 Cà chua": (0.6, 1.2)}
-st.selectbox("🌿 Cấu hình nhanh:", options=list(PLANT_PRESETS.keys()), key="plant_selector")
-low_threshold = st.slider("Ngưỡng VPD Thấp:", 0.1, 1.5, 0.45, key="slider_low")
-high_threshold = st.slider("Ngưỡng VPD Cao:", 1.0, 3.0, 1.70, key="slider_high")
-
-# =====================================================================
-# LOGIC CHẠY KHI ĐÃ BẤM NÚT
-# =====================================================================
-if st.session_state.is_running:
-    st_autorefresh(interval=30000, key="iot_refresh")
+# --- CÔNG THỨC TÍNH VPD ---
+def calculate_vpd(temp, rh):
+    """
+    Công thức tính VPD (kPa):
+    VP_sat = 0.61078 * e^((17.27 * T) / (T + 237.3))
+    VPD = VP_sat * (1 - RH/100)
+    """
+    # 1. Tính Áp suất hơi bão hòa (VP_sat) ở nhiệt độ hiện tại
+    vp_sat = 0.61078 * math.exp((17.27 * temp) / (temp + 237.3))
     
-    # Tạo dữ liệu
-    temp = round(random.uniform(25.0, 35.0), 1)
-    humi = round(random.uniform(50.0, 85.0), 1)
-    time_log = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    vpd = calculate_vpd(temp, humi)
-    status, reason, action = evaluate_status(vpd, temp, humi, low_threshold, high_threshold)
-    
-    # Lưu dữ liệu
-    new_row = pd.DataFrame([{"Thời gian": time_log, "STT": "01", "Nhiệt độ": temp, "Độ ẩm": humi, "VPD": vpd, "Trạng thái": status}])
-    st.session_state.mqtt_df = pd.concat([st.session_state.mqtt_df, new_row]).tail(100)
-    
-    send_telegram_auto(f"Trạm 01: {status}\nVPD: {vpd:.2f} kPa\n{reason}")
+    # 2. Tính VPD dựa trên độ ẩm tương đối (RH)
+    vpd = vp_sat * (1.0 - (rh / 100.0))
+    return vpd
 
-    # Đếm ngược UI
-    components.html("""<div style="background:#f0f2f6; padding:10px; border-radius:5px; border-left:5px solid #1f77b4;">
-        ⏱️ <b>ĐỒNG HỒ QUÉT:</b> <span id="timer" style="color:#ff4b4b; font-weight:bold;">30</span> giây nữa...
-    </div><script>let t=30; setInterval(()=>{t=t>0?t-1:30; document.getElementById('timer').innerText=t;}, 1000);</script>""", height=60)
+# --- QUẢN LÝ TRẠNG THÁI (Session State) ---
+# Dùng session_state để lưu lại giá trị cũ, không bị reset khi trang load lại
+if 'temp' not in st.session_state:
+    st.session_state.temp = 25.0  # Giá trị mặc định ban đầu
+if 'rh' not in st.session_state:
+    st.session_state.rh = 60.0    # Giá trị mặc định ban đầu
+
+# --- NÚT BẤM RANDOM ---
+if st.button("🎲 Random Thông Số Mới", type="primary"):
+    # Giới hạn random Nhiệt độ từ 15°C đến 38°C, Độ ẩm từ 30% đến 95%
+    st.session_state.temp = round(random.uniform(15.0, 38.0), 1)
+    st.session_state.rh = round(random.uniform(30.0, 95.0), 1)
+
+# --- HIỂN THỊ THÔNG SỐ NHIỆT ĐỘ & ĐỘ ẨM ---
+st.write("---")
+col1, col2 = st.columns(2)
+
+with col1:
+    st.metric(label="🌡️ Nhiệt độ", value=f"{st.session_state.temp} °C")
+
+with col2:
+    st.metric(label="💧 Độ ẩm", value=f"{st.session_state.rh} %")
+
+# --- TÍNH TOÁN VÀ HIỂN THỊ KẾT QUẢ VPD ---
+vpd_result = calculate_vpd(st.session_state.temp, st.session_state.rh)
+
+st.write("---")
+st.subheader("Chỉ số VPD hiện tại:")
+# Hiển thị số VPD lớn, làm tròn 2 chữ số thập phân
+st.metric(label="Áp suất hơi thâm hụt (Vapor Pressure Deficit)", value=f"{vpd_result:.2f} kPa")
+
+# --- ĐÁNH GIÁ MÔI TRƯỜNG DỰA TRÊN VPD (Dành cho cây trồng nói chung) ---
+st.write("**Đánh giá môi trường:**")
+if vpd_result < 0.4:
+    st.warning("⚠️ **VPD quá thấp (Môi trường quá ẩm):** Cây khó thoát nước, dễ bị nấm bệnh tấn công.")
+elif 0.4 <= vpd_result <= 0.8:
+    st.info("🌱 **VPD Thấp:** Phù hợp cho giai đoạn nhân giống, kích rễ hoặc cây con.")
+elif 0.8 < vpd_result <= 1.2:
+    st.success("✅ **VPD Lý tưởng:** Môi trường hoàn hảo cho hầu hết các loại cây phát triển mạnh mẽ.")
+elif 1.2 < vpd_result <= 1.6:
+    st.info("🍂 **VPD Hơi cao:** Phù hợp cho giai đoạn cây ra hoa hoặc tạo quả.")
 else:
-    st.warning("⏸️ Hệ thống đang TẠM DỪNG. Nhấn BẮT ĐẦU để kích hoạt.")
-
-# =====================================================================
-# HIỂN THỊ
-# =====================================================================
-if not st.session_state.mqtt_df.empty:
-    st.download_button("📥 Tải CSV", st.session_state.mqtt_df.to_csv(index=False), "data_01.csv", use_container_width=True)
-    st.dataframe(st.session_state.mqtt_df.sort_index(ascending=False), use_container_width=True)
-    
-    fig = px.line(st.session_state.mqtt_df, x="Thời gian", y="VPD", title="Chỉ số VPD Trạm 01")
-    fig.add_hline(y=low_threshold, line_dash="dash", line_color="blue")
-    fig.add_hline(y=high_threshold, line_dash="dash", line_color="red")
-    st.plotly_chart(fig, use_container_width=True)
+    st.error("🚨 **VPD quá cao (Môi trường quá khô):** Cây mất nước quá nhanh, buộc phải đóng lỗ khí khổng, ngừng lớn.")
