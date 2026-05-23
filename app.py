@@ -170,7 +170,6 @@ def trigger_new_data(vpd_min, vpd_max):
     
     next_sim_datetime = current_sim_datetime + timedelta(minutes=30)
     
-    # Kết thúc chu kỳ đêm -> Tự động chuyển kim đồng hồ sang ngày mới
     if next_sim_datetime.hour == 0 and next_sim_datetime.minute == 0:
         next_sim_datetime = next_sim_datetime + timedelta(hours=7)
         
@@ -250,7 +249,6 @@ def vpd_controlled_monitor():
         st.write("")
         with st.container(border=True):
             st.markdown("<p style='color: #2E7D32; font-size: 16px; font-weight: bold; margin-bottom: 2px;'>📊 TRẠM PHÂN TÍCH THEO BUỔI & ĐỀ XUẤT ĐIỀU HÀNH THỜI GIAN THỰC</p>", unsafe_allow_html=True)
-            st.caption("📋 *Báo cáo cập nhật liên tục: Vừa chạy qua mốc giờ nào sẽ lập tức tính toán và đưa ra giải pháp kỹ thuật mốc đó.*")
             
             unique_days = sorted(list(set([r["Ngày"] for r in st.session_state.history])), reverse=True)
             selected_report_day = st.selectbox("Chọn ngày để xem báo cáo:", unique_days)
@@ -263,7 +261,6 @@ def vpd_controlled_monitor():
         st.write("")
         with st.container(border=True):
             st.markdown("<p style='color: gray; font-size: 14px; margin-bottom: 2px;'>📈 BIỂU ĐỒ XU HƯỚNG ĐỒNG BỘ CHU KỲ TRONG NGÀY</p>", unsafe_allow_html=True)
-            st.caption("💡 *Mẹo:* Rê chuột vào các điểm nút trên đường vẽ để xem thông số chi tiết mốc giờ đó.")
             
             df_chart = pd.DataFrame(st.session_state.history).iloc[::-1].copy()
             
@@ -288,15 +285,16 @@ def vpd_controlled_monitor():
             with tab_vpd:
                 st.caption(f"ℹ️ Vùng màu an toàn theo [{plant_option}]: 🟦 Quá ẩm (< {vpd_min} kPa) | 🟥 Quá khô (> {vpd_max} kPa)")
                 
+                # SỬA LỖI 1: Tách trục vùng nền bằng cách gán ranh giới rõ ràng độc lập, tiêu đề sạch sẽ
                 bg_data = pd.DataFrame([{'start_blue': 0.0, 'end_blue': vpd_min, 'start_red': vpd_max, 'end_red': 3.0}])
                 
                 rect_blue = alt.Chart(bg_data).mark_rect(color='#0068C9', opacity=0.12).encode(
-                    y=alt.Y('start_blue:Q'), 
+                    y=alt.Y('start_blue:Q', axis=alt.Axis(title=None)), 
                     y2=alt.Y2('end_blue:Q')
                 )
                 
                 rect_red = alt.Chart(bg_data).mark_rect(color='#FF4B4B', opacity=0.12).encode(
-                    y=alt.Y('start_red:Q'), 
+                    y=alt.Y('start_red:Q', axis=alt.Axis(title=None)), 
                     y2=alt.Y2('end_red:Q')
                 )
                 
@@ -306,37 +304,39 @@ def vpd_controlled_monitor():
                     tooltip=['Ngày', 'Hiển thị Giờ', 'VPD (kPa)', 'Trạng thái']
                 )
                 
-                chart_vpd = (rect_blue + rect_red + line_vpd).properties(height=260).resolve_scale(y='shared')
+                # .resolve_scale(y='independent') giúp lọc sạch chuỗi chữ rác ở trục Y
+                chart_vpd = (rect_blue + rect_red + line_vpd).properties(height=260).resolve_scale(y='independent')
                 st.altair_chart(chart_vpd, use_container_width=True)
 
             with tab_combined:
                 st.caption("🔴 Đường Đỏ: Nhiệt độ (°C) | 🔵 Đường Xanh dương: Độ ẩm (%) [Trục Trái] --- 🟢 Đường Xanh lá: VPD (kPa) [Trục Phải]")
                 
-                # Khởi tạo trục nền cơ sở (Trục X)
                 base = alt.Chart(df_chart).encode(
                     x=alt.X('Hiển thị Giờ:O', axis=alt.Axis(title="Mốc thời gian", labelAngle=0))
                 )
                 
-                # Thiết kế đường vẽ Nhiệt độ
+                # SỬA LỖI 2: Đưa Nhiệt độ và Độ ẩm vào chung 1 lớp ghép đôi (layer) trước khi kéo trục VPD
                 line_t = base.mark_line(color='#FF4B4B', strokeDash=[3,3], point=alt.OverlayMarkDef(color='#FF4B4B')).encode(
                     y=alt.Y('Nhiệt độ (°C):Q', axis=alt.Axis(title="Nhiệt độ (°C) / Độ ẩm (%)", titleColor='#0068C9')),
                     tooltip=['Hiển thị Giờ', 'Nhiệt độ (°C)']
                 )
                 
-                # Thiết kế đường vẽ Độ ẩm
                 line_r = base.mark_line(color='#0068C9', point=alt.OverlayMarkDef(color='#0068C9')).encode(
                     y=alt.Y('Độ ẩm (%):Q'),
                     tooltip=['Hiển thị Giờ', 'Độ ẩm (%)']
                 )
                 
-                # Thiết kế đường vẽ VPD kết hợp trục Y thứ hai bên phải (Independent Dual Axis)
+                # Gộp nhóm thời tiết (Trái)
+                weather_layer = alt.layer(line_t, line_r)
+                
+                # Thiết kế đường vẽ VPD (Phải)
                 line_v = base.mark_line(color='#2E7D32', size=3, point=alt.OverlayMarkDef(color='#2E7D32')).encode(
-                    y=alt.Y('VPD (kPa):Q', axis=alt.Axis(title="Áp suất VPD (kPa)", titleColor='#2E7D32')),
+                    y=alt.Y('VPD (kPa):Q', axis=alt.Axis(title="Áp suất VPD (kPa)", titleColor='#2E7D32'), scale=alt.Scale(domain=[0, 3.0])),
                     tooltip=['Hiển thị Giờ', 'VPD (kPa)', 'Trạng thái']
                 )
                 
-                # Gộp 3 chỉ số và ép phân tách thang đo trục Y độc lập (Trái: % và °C, Phải: kPa)
-                combined_chart = alt.layer(line_t, line_r, line_v).properties(height=260).resolve_scale(
+                # Ép phân tách 2 cụm độc lập: Cụm thời tiết (Trái) và Cụm VPD (Phải) để chống chồng chữ
+                combined_chart = alt.layer(weather_layer, line_v).properties(height=260).resolve_scale(
                     y='independent'
                 )
                 st.altair_chart(combined_chart, use_container_width=True)
