@@ -37,12 +37,10 @@ def get_weather_by_time(sim_time):
         rh = round(random.uniform(80.0, 95.0), 1)
     return temp, rh
 
-# --- HÀM TỰ ĐỘNG PHÂN TÍCH THEO BUỔI & ĐƯA RA HƯỚNG XỬ LÝ CHI TIẾT ---
-def analyze_day_by_blocks(history_list, vpd_min, vpd_max, target_date_str):
+# --- HÀM PHÂN TÍCH THỜI GIAN THỰC THEO BUỔI (XONG TỚI ĐÂU HIỆN TỚI ĐÓ) ---
+def analyze_day_by_blocks_rt(history_list, vpd_min, vpd_max, target_date_str):
     day_data = [r for r in history_list if r["Ngày"] == target_date_str]
-    if not day_data:
-        return None
-        
+    
     blocks = {
         "🌅 Sáng (07h-11h)": [],
         "☀️ Trưa (11h-15h)": [],
@@ -74,22 +72,22 @@ def analyze_day_by_blocks(history_list, vpd_min, vpd_max, target_date_str):
                 if "Sáng" in block_name:
                     huong_xu_ly = "Mở bạt hông muộn hoặc bật quạt gió để xua tan sương ẩm ban đêm đọng trên lá."
                 elif "Trưa" in block_name or "Chiều" in block_name:
-                    huong_xu_ly = "Trời âm u/mưa khép kín. Bật quạt đối lưu mạnh, hạn chế tưới nước dầm gốc."
+                    huong_xu_ly = "Trời ẩm u/mưa khép vách. Bật quạt đối lưu mạnh, hạn chế tưới gốc dầm dề."
                 else:
-                    huong_xu_ly = "Ẩm độ ban đêm rất cao. Tuyệt đối không tưới muộn sau 16h; bật quạt thông gió định kỳ."
+                    huong_xu_ly = "Ẩm độ ban đêm rất cao. Tuyệt đối không tưới muộn sau 16h; bật thông gió định kỳ."
             elif vpd_min <= avg_vpd <= vpd_max:
                 danh_gia = "🟩 Lý tưởng"
                 huong_xu_ly = "Môi trường hoàn hảo. Duy trì chế độ thông thoáng tự nhiên và lịch tưới hiện tại."
             else:
                 danh_gia = "🟥 Quá khô"
                 if "Sáng" in block_name:
-                    huong_xu_ly = "Nắng lên nhanh làm tăng nhiệt. Cần kích hoạt nhẹ hệ thống tưới nhỏ giọt để cấp ẩm gốc."
+                    huong_xu_ly = "Nắng lên nhanh làm nhiệt tăng. Kích hoạt nhẹ tưới nhỏ giọt để cấp ẩm vùng rễ."
                 elif "Trưa" in block_name:
-                    huong_xu_ly = "Cao điểm nắng nóng cực độ! Kéo lưới đen cắt nắng (giảm 30%), bật phun sương mịn 5-10 phút/lần."
+                    huong_xu_ly = "Cao điểm nắng nóng! Kéo lưới đen cắt nắng (giảm 30%), phun sương mịn 5-10 phút/lần."
                 elif "Chiều" in block_name:
-                    huong_xu_ly = "Nhiệt muộn vẫn cao. Bổ sung một lượt phun sương ngắn để hạ nhiệt trước khi đóng vách kính."
+                    huong_xu_ly = "Nhiệt muộn vẫn cao. Bổ sung một lượt phun sương ngắn để hạ nhiệt trước khi đóng vách."
                 else:
-                    huong_xu_ly = "Hiện tượng bất thường (hiếm gặp ban đêm). Kiểm tra thiết bị sưởi hoặc đóng kín vách ngăn gió."
+                    huong_xu_ly = "Hiện tượng bất thường ban đêm. Kiểm tra thiết bị sưởi hoặc đóng kín vách ngăn gió."
             
             summary.append({
                 "Khoảng Thời Gian": block_name,
@@ -98,11 +96,12 @@ def analyze_day_by_blocks(history_list, vpd_min, vpd_max, target_date_str):
                 "Hướng Xử Lý Đề Xuất (Kỹ thuật nhà kính)": huong_xu_ly
             })
         else:
+            # Nếu chưa chạy đến buổi đó thì ẩn dòng hoặc hiển thị trạng thái chờ dữ liệu
             summary.append({
                 "Khoảng Thời Gian": block_name,
-                "VPD TB (kPa)": "N/A",
-                "Đánh Giá": "⚪ Thiếu số liệu",
-                "Hướng Xử Lý Đề Xuất (Kỹ thuật nhà kính)": "Không có dữ liệu phân tích."
+                "VPD TB (kPa)": "--",
+                "Đánh Giá": "⚪ Đang chờ mốc giờ...",
+                "Hướng Xử Lý Đề Xuất (Kỹ thuật nhà kính)": "Chưa có dữ liệu thu thập cho buổi này."
             })
     return pd.DataFrame(summary)
 
@@ -141,7 +140,6 @@ if 'countdown' not in st.session_state: st.session_state.countdown = 15
 if 'is_running' not in st.session_state: st.session_state.is_running = False
 if 'history' not in st.session_state: st.session_state.history = []
 if 'stt_counter' not in st.session_state: st.session_state.stt_counter = 0 
-if 'daily_reports' not in st.session_state: st.session_state.daily_reports = {} 
 
 # KHỞI TẠO THỜI GIAN MÔ PHỎNG (Bắt đầu từ 07:00 Sáng)
 if 'simulated_time' not in st.session_state:
@@ -173,11 +171,8 @@ def trigger_new_data(vpd_min, vpd_max):
     
     next_sim_datetime = current_sim_datetime + timedelta(minutes=30)
     
-    # Kết thúc ngày -> Xuất báo cáo, nhảy vọt qua chu kỳ đêm sang 7h00 sáng hôm sau
+    # Kết thúc chu kỳ đêm -> Tự động chuyển kim đồng hồ sang ngày mới
     if next_sim_datetime.hour == 0 and next_sim_datetime.minute == 0:
-        report_df = analyze_day_by_blocks(st.session_state.history, vpd_min, vpd_max, current_date_str)
-        if report_df is not None:
-            st.session_state.daily_reports[current_date_str] = report_df
         next_sim_datetime = next_sim_datetime + timedelta(hours=7)
         
     st.session_state.simulated_time = next_sim_datetime.strftime("%Y-%m-%d %H:%M:%S")
@@ -251,13 +246,20 @@ def vpd_controlled_monitor():
             elif msg_type == "success": st.success(trend_msg)
             else: st.info(trend_msg)
 
-    # --- CONTAINER 5: BÁO CÁO PHÂN TÍCH TỔNG KẾT THEO BUỔI KÈM HƯỚNG XỬ LÝ ---
-    if st.session_state.daily_reports:
+    # --- CONTAINER 5: BÁO CÁO PHÂN TÍCH THỜI GIAN THỰC (ĐÃ CẬP NHẬT: XONG TỚI ĐÂU HIỆN TỚI ĐÓ) ---
+    if len(st.session_state.history) > 0:
         st.write("")
         with st.container(border=True):
-            st.markdown("<p style='color: #2E7D32; font-size: 16px; font-weight: bold; margin-bottom: 2px;'>📊 TRẠM PHÂN TÍCH DIỆN MẠO NHÀ KÍNH & ĐỀ XUẤT ĐIỀU HÀNH</p>", unsafe_allow_html=True)
-            selected_report_day = st.selectbox("Chọn ngày tổng kết để xem phân tích:", list(st.session_state.daily_reports.keys()))
-            st.dataframe(st.session_state.daily_reports[selected_report_day], use_container_width=True, hide_index=True)
+            st.markdown("<p style='color: #2E7D32; font-size: 16px; font-weight: bold; margin-bottom: 2px;'>📊 TRẠM PHÂN TÍCH THEO BUỔI & ĐỀ XUẤT ĐIỀU HÀNH THỜI GIAN THỰC</p>", unsafe_allow_html=True)
+            st.caption("📋 *Báo cáo cập nhật liên tục: Vừa chạy qua mốc giờ nào sẽ lập tức tính toán và đưa ra giải pháp kỹ thuật mốc đó.*")
+            
+            # Lấy danh sách các Ngày có trong lịch sử để người dùng chọn xem
+            unique_days = sorted(list(set([r["Ngày"] for r in st.session_state.history])), reverse=True)
+            selected_report_day = st.selectbox("Chọn ngày để xem báo cáo:", unique_days)
+            
+            # Gọi hàm phân tích thời gian thực cho ngày được chọn
+            rt_report_df = analyze_day_by_blocks_rt(st.session_state.history, vpd_min, vpd_max, selected_report_day)
+            st.dataframe(rt_report_df, use_container_width=True, hide_index=True)
 
     # --- CONTAINER 6: BIỂU ĐỒ XU HƯỚNG ĐỒNG BỘ CHU KỲ TRONG NGÀY ---
     if len(st.session_state.history) > 0:
@@ -307,7 +309,6 @@ def vpd_controlled_monitor():
                     tooltip=['Ngày', 'Hiển thị Giờ', 'VPD (kPa)', 'Trạng thái']
                 )
                 
-                # Sử dụng .resolve_scale(y='shared') bảo vệ trục Y hướng lên trên không bị biến mất
                 chart_vpd = (rect_blue + rect_red + line_vpd).properties(height=260).resolve_scale(y='shared')
                 st.altair_chart(chart_vpd, use_container_width=True)
 
@@ -328,7 +329,6 @@ def vpd_controlled_monitor():
             st.session_state.temp = 0.0
             st.session_state.rh = 0.0
             st.session_state.history = []
-            st.session_state.daily_reports = {}
             st.session_state.simulated_time = "2026-05-24 07:00:00"
             st.rerun()
 
