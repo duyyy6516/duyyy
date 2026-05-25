@@ -1,6 +1,5 @@
-paho-mqtt
-requests
-streamlit-autorefresh
-plotly
+streamlit
 pandas
-numpy
+altair
+requests
+openpyxl
