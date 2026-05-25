@@ -1,28 +1,36 @@
 import requests
 
-def send_telegram_message(token, chat_id, message):
-    """Gửi thông báo khẩn cấp qua Telegram Bot"""
+def send_discord_message(webhook_url: str, message: str) -> bool:
+    """
+    Gửi thông báo cảnh báo VPD qua Discord Webhook
+    """
+    if not webhook_url:
+        return False
     try:
-        url = f"https://api.telegram.org/bot{token}/sendMessage"
-        payload = {"chat_id": chat_id, "text": message, "parse_mode": "Markdown"}
-        response = requests.post(url, json=payload, timeout=3)
-        return response.status_code == 200
-    except:
+        # Chuyển đổi một số định dạng Markdown của Telegram sang định dạng tương thích với Discord
+        # Discord sử dụng ** để viết đậm (giống Telegram) nhưng không hỗ trợ ghi kiểu *chữ_nghiêng* lồng phức tạp
+        payload = {
+            "content": message
+        }
+        response = requests.post(webhook_url, json=payload, timeout=10)
+        return response.status_code in [200, 204]
+    except Exception:
         return False
 
-def get_quick_solution(vpd, vpd_min, vpd_max):
-    """Đưa ra giải pháp vận hành phần cứng tự động dựa trên thuật toán rẽ nhánh"""
+def get_quick_solution(vpd: float, vpd_min: float, vpd_max: float, hour: int) -> str:
+    """
+    Trả về giải pháp xử lý vi khí hậu nhanh dựa trên giá trị VPD và mốc thời gian
+    """
     if vpd < vpd_min:
-        return (
-            "🚨 [QUÁ ẨM - NGUY CƠ BỆNH CAO]\n"
-            "👉 Giải pháp: Tắt hệ thống tưới phun sương ngay lập tức.\n"
-            "👉 Thiết bị: Bật quạt đối lưu không khí, mở rèm thông gió, bật đèn nhiệt sưởi (nếu có)."
-        )
+        if 6 <= hour <= 17:
+            return "Trời ẩm - Ban ngày: Bật quạt đối lưu, mở bạt mái thông gió, dừng phun sương."
+        else:
+            return "Trời ẩm - Ban đêm: Bật quạt gió, kích hoạt hệ thống sưởi nâng nhiệt nhẹ nếu cần."
+    
     elif vpd > vpd_max:
-        return (
-            "🚨 [QUÁ KHÔ - CÂY STRESS ĐÓNG KHÍ KHỔNG]\n"
-            "👉 Giải pháp: Kích hoạt phun sương hạt mịn để tăng ẩm hạ nhiệt.\n"
-            "👉 Thiết bị: Bật hệ thống tưới sàn, kéo rèm lưới che bớt nắng gắt."
-        )
-    else:
-        return "✅ Môi trường đang Lý tưởng. Duy trì chế độ tự động thông gió nhẹ."
+        if 10 <= hour <= 15:
+            return "Trời khô - Trưa nắng gắt: Kéo lưới cắt nắng, bật phun sương làm mát mịn áp suất cao."
+        else:
+            return "Trời khô - Giờ thấp điểm: Bật phun sương boong, tưới bù ẩm nhẹ cho nền sàn."
+            
+    return "Môi trường hoàn hảo: Duy trì trạng thái thông thoáng hiện tại cho nhà kính."
