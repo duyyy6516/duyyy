@@ -1,32 +1,27 @@
-import numpy as np
+import math
+import random
 
 def calculate_vpd(temp, rh):
-    """Tính chỉ số Áp suất thâm hụt hơi (VPD) - Đơn vị: kPa"""
-    # Áp suất hơi bão hòa (SVP)
-    svp = 0.61078 * np.exp((17.27 * temp) / (temp + 237.3))
-    # Áp suất hơi thực tế (AVP)
-    avp = svp * (rh / 100.0)
-    # Thâm hụt áp suất hơi (VPD)
-    vpd = svp - avp
-    return round(vpd, 2)
+    """Tính toán chỉ số áp suất hơi thâm hụt (VPD)"""
+    if temp == 0 and rh == 0:
+        return 0.0
+    vp_sat = 0.61078 * math.exp((17.27 * temp) / (temp + 237.3))
+    vpd = vp_sat * (1.0 - (rh / 100.0))
+    return vpd
 
-def get_weather_by_time(dt):
-    """Mô phỏng thời tiết Đà Lạt thay đổi tự nhiên theo giờ trong ngày"""
-    hour = dt.hour
-    minute = dt.minute
-    time_frac = hour + minute / 60.0
-    
-    # Giờ lạnh nhất là 5:30 sáng, nóng nhất là 13:30 chiều
-    temp_base = 16.0 + 8.0 * np.sin((time_frac - 7.5) * np.pi / 12.0)
-    # Độ ẩm nghịch biến với nhiệt độ
-    rh_base = 75.0 - 25.0 * np.sin((time_frac - 7.5) * np.pi / 12.0)
-    
-    # Thêm một chút nhiễu nhẹ tự nhiên (noise)
-    np.random.seed(hour * 60 + minute)
-    temp_noise = np.random.uniform(-0.4, 0.4)
-    rh_noise = np.random.uniform(-1.5, 1.5)
-    
-    final_temp = round(temp_base + temp_noise, 1)
-    final_rh = round(min(max(rh_base + rh_noise, 30.0), 100.0), 1)
-    
-    return final_temp, final_rh
+def get_weather_by_time(sim_time):
+    """Mô phỏng thời tiết ngẫu nhiên theo chu kỳ buổi trong ngày ở Đà Lạt"""
+    hour = sim_time.hour
+    if 7 <= hour < 11:
+        temp = round(random.uniform(20.0, 25.5), 1)
+        rh = round(random.uniform(65.0, 80.0), 1)
+    elif 11 <= hour < 15:
+        temp = round(random.uniform(26.0, 31.0), 1)
+        rh = round(random.uniform(40.0, 55.0), 1)
+    elif 15 <= hour < 19:
+        temp = round(random.uniform(19.0, 25.0), 1)
+        rh = round(random.uniform(60.0, 75.0), 1)
+    else:
+        temp = round(random.uniform(14.0, 18.5), 1)
+        rh = round(random.uniform(80.0, 95.0), 1)
+    return temp, rh
